@@ -2,16 +2,21 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b0e0d">
+  <meta name="description" content="Ведьмина лавка — мрачная сказка у края леса: вари зелья, собирай ингредиенты и открывай гримуар.">
+  <meta name="color-scheme" content="dark">
   <title>Ведьмина лавка</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main id="game">
     <header class="head">
       <h1>Ведьмина лавка</h1>
-      <p class="tagline">Мрачная сказка у края леса</p>
+      <p class="tagline">Мрачная сказка у края леса <span id="version" class="version">v2.0</span></p>
     </header>
 
     <canvas id="scene" width="600" height="340" role="img"
@@ -32,6 +37,7 @@
       <p id="order"></p>
       <p id="guest-hint" class="muted"></p>
       <p id="revealed" class="muted small" aria-live="polite"></p>
+      <p id="supply" class="supply small" aria-live="polite"></p>
       <p id="reward" class="muted"></p>
       <button id="hint" class="ghost">🕯 Подсказка — 4 🪙</button>
     </section>
@@ -54,11 +60,14 @@
         <button id="brew">🔥 Сварить зелье</button>
         <button id="clear" class="ghost">Очистить котёл</button>
       </div>
+      <p class="hint-line small">Клавиши: <kbd>1</kbd>–<kbd>4</kbd> — ингредиент, <kbd>Enter</kbd> — варить, <kbd>Esc</kbd> — очистить</p>
     </section>
 
     <section class="card">
-      <h2>📖 Гримуар</h2>
-      <p class="muted small">Рецепт открывается, когда зелье удаётся впервые.</p>
+      <div class="card-head">
+        <h2>📖 Гримуар</h2>
+        <span id="grimoire-count" class="badge">0 / 10</span>
+      </div>
       <ul id="grimoire" class="grimoire"></ul>
     </section>
 
@@ -67,11 +76,21 @@
       <div id="upgrades" class="upgrades"></div>
     </section>
 
+    <section class="card">
+      <div class="card-head">
+        <h2>🏅 Достижения</h2>
+        <span id="ach-count" class="badge">0 / 6</span>
+      </div>
+      <ul id="achievements" class="achievements"></ul>
+    </section>
+
     <footer class="foot">
       <button id="sound">🔇 Включить звук</button>
       <button id="reset" class="ghost danger">Начать заново</button>
     </footer>
   </main>
+
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
   <script src="game.js"></script>
 </body>
 </html>

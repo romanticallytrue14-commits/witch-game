@@ -3,18 +3,24 @@
 const $ = (id) => document.getElementById(id);
 
 /* ============================================================
-   Данные игры
+   Версия и ключи хранилища
    ============================================================ */
 
+const GAME_VERSION = "2.0";
+const SAVE_VERSION = 2;
 const STORAGE_KEY = "witchGame3";
 const LEGACY_KEY = "witchGame2";
 const SOUND_KEY = "witchGameSound";
 
+/* ============================================================
+   Данные игры
+   ============================================================ */
+
 const ITEMS = {
-  гриб: { name: "Гриб", emoji: "🍄", color: [138, 106, 69] },
-  трава: { name: "Трава", emoji: "🌿", color: [111, 154, 88] },
-  ягода: { name: "Ягода", emoji: "🫐", color: [122, 107, 176] },
-  цветок: { name: "Лунный цветок", emoji: "🌙", color: [200, 212, 255] }
+  гриб: { name: "Гриб", emoji: "🍄", color: [138, 106, 69], where: "собери на опушке" },
+  трава: { name: "Трава", emoji: "🌿", color: [111, 154, 88], where: "собери на опушке" },
+  ягода: { name: "Ягода", emoji: "🫐", color: [122, 107, 176], where: "собери на опушке" },
+  цветок: { name: "Лунный цветок", emoji: "🌙", color: [200, 212, 255], where: "ищи в чаще" }
 };
 
 const ITEM_KEYS = Object.keys(ITEMS);
@@ -28,14 +34,18 @@ const SMELL = {
   цветок: "холодным лунным светом"
 };
 
+// Десять зелий — все пары четырёх ингредиентов, включая повторы.
 const RECIPES = [
-  { id: "night-eye", name: "Ночное зрение", guest: "Слепой охотник", items: ["гриб", "ягода"], reward: 12 },
-  { id: "healing", name: "Лесное исцеление", guest: "Раненая странница", items: ["трава", "гриб"], reward: 10 },
-  { id: "shadow", name: "Шёпот теней", guest: "Незнакомец в плаще", items: ["ягода", "трава"], reward: 15 },
   { id: "dreamless", name: "Сон без сновидений", guest: "Уставшая ведьма", items: ["гриб", "гриб"], reward: 11 },
+  { id: "spring", name: "Дыхание весны", guest: "Продрогший пастух", items: ["трава", "трава"], reward: 13 },
+  { id: "thorn", name: "Терновый сон", guest: "Разбойник с большой дороги", items: ["ягода", "ягода"], reward: 14 },
+  { id: "eclipse", name: "Лунное затмение", guest: "Бледный жрец", items: ["цветок", "цветок"], reward: 30 },
+  { id: "healing", name: "Лесное исцеление", guest: "Раненая странница", items: ["трава", "гриб"], reward: 10 },
+  { id: "night-eye", name: "Ночное зрение", guest: "Слепой охотник", items: ["гриб", "ягода"], reward: 12 },
+  { id: "call", name: "Зов леса", guest: "Лесной дух", items: ["цветок", "гриб"], reward: 20 },
+  { id: "shadow", name: "Шёпот теней", guest: "Незнакомец в плаще", items: ["ягода", "трава"], reward: 15 },
   { id: "moonpath", name: "Лунная дорожка", guest: "Заблудший путник", items: ["цветок", "трава"], reward: 22 },
-  { id: "fog", name: "Туман забвения", guest: "Старуха с веретеном", items: ["цветок", "ягода"], reward: 25 },
-  { id: "call", name: "Зов леса", guest: "Лесной дух", items: ["цветок", "гриб"], reward: 20 }
+  { id: "fog", name: "Туман забвения", guest: "Старуха с веретеном", items: ["цветок", "ягода"], reward: 25 }
 ];
 
 const UPGRADES = [
@@ -50,11 +60,26 @@ const UPGRADES = [
     name: "🔮 Хрустальный шар",
     desc: "Подсказки гримуара для гостей бесплатны.",
     cost: 25
+  },
+  {
+    id: "candle",
+    name: "🕯 Долгая свеча",
+    desc: "Гости дают третью попытку: свеча горит, пока идёт торг.",
+    cost: 40
   }
 ];
 
+const ACHIEVEMENTS = [
+  { id: "first-brew", name: "Первый гость", desc: "Сварить первое зелье", test: (s) => s.served >= 1 },
+  { id: "streak-5", name: "Твёрдая рука", desc: "Пять заказов подряд без ошибок", test: (s) => s.bestStreak >= 5 },
+  { id: "coins-100", name: "Богатая ведьма", desc: "Накопить 100 монет", test: (s) => s.coins >= 100 },
+  { id: "moon-5", name: "Лунный сбор", desc: "Собрать пять лунных цветков", test: (s) => s.gathered["цветок"] >= 5 },
+  { id: "full-grimoire", name: "Полный гримуар", desc: "Открыть все десять рецептов", test: (s) => s.discovered.length >= RECIPES.length },
+  { id: "patient", name: "Спокойствие", desc: "Отпустить гостя и продолжить", test: (s) => s.leftGuests >= 1 }
+];
+
+const BASE_TRIES = 2;
 const HINT_COST = 4;
-const MAX_TRIES = 2;
 const STREAK_BONUS_CAP = 5;
 
 /* ============================================================
@@ -63,13 +88,17 @@ const STREAK_BONUS_CAP = 5;
 
 function freshState() {
   return {
+    version: SAVE_VERSION,
     coins: 0,
     served: 0,
     leftGuests: 0,
     streak: 0,
+    bestStreak: 0,
     stock: { гриб: 2, трава: 2, ягода: 2, цветок: 0 },
+    gathered: { гриб: 0, трава: 0, ягода: 0, цветок: 0 },
     pot: [],
     discovered: [],
+    achievements: [],
     upgrades: [],
     order: null
   };
@@ -80,23 +109,38 @@ function toCount(value, fallback = 0) {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback;
 }
 
+function hasUpgrade(id) {
+  return state.upgrades.includes(id);
+}
+
+function maxTries() {
+  return BASE_TRIES + (hasUpgrade("candle") ? 1 : 0);
+}
+
 function makeOrder(prevId) {
   const pool = RECIPES.filter((r) => r.id !== prevId);
-  const chosen = pool[Math.floor(Math.random() * pool.length)] || RECIPES[0];
-  return { recipeId: chosen.id, tries: MAX_TRIES, revealed: [] };
+  const chosen = pool[Math.floor(Math.random() * pool.length)] ?? RECIPES[0];
+  return { recipeId: chosen.id, tries: maxTries(), revealed: [] };
 }
 
 function sanitize(raw, base) {
   if (!raw || typeof raw !== "object") return base;
 
+  base.version = SAVE_VERSION;
   base.coins = toCount(raw.coins);
   base.served = toCount(raw.served);
   base.leftGuests = toCount(raw.leftGuests);
   base.streak = toCount(raw.streak);
+  base.bestStreak = Math.max(toCount(raw.bestStreak), base.streak);
 
   const stock = raw.stock && typeof raw.stock === "object" ? raw.stock : {};
   for (const key of ITEM_KEYS) {
     base.stock[key] = toCount(stock[key], base.stock[key]);
+  }
+
+  const gathered = raw.gathered && typeof raw.gathered === "object" ? raw.gathered : {};
+  for (const key of ITEM_KEYS) {
+    base.gathered[key] = toCount(gathered[key]);
   }
 
   if (Array.isArray(raw.pot)) {
@@ -107,15 +151,22 @@ function sanitize(raw, base) {
     base.discovered = raw.discovered.filter((id) => RECIPES.some((r) => r.id === id));
   }
 
+  if (Array.isArray(raw.achievements)) {
+    base.achievements = raw.achievements.filter((id) => ACHIEVEMENTS.some((a) => a.id === id));
+  }
+
   if (Array.isArray(raw.upgrades)) {
     base.upgrades = raw.upgrades.filter((id) => UPGRADES.some((u) => u.id === id));
   }
 
   const order = raw.order;
   if (order && RECIPES.some((r) => r.id === order.recipeId)) {
+    // Лимит попыток считаем от уже восстановленных улучшений,
+    // а не от глобального state: он ещё не инициализирован.
+    const triesLimit = BASE_TRIES + (base.upgrades.includes("candle") ? 1 : 0);
     base.order = {
       recipeId: order.recipeId,
-      tries: Math.min(MAX_TRIES, Math.max(1, toCount(order.tries, MAX_TRIES))),
+      tries: Math.min(triesLimit, Math.max(1, toCount(order.tries, triesLimit))),
       revealed: Array.isArray(order.revealed)
         ? order.revealed.filter((item) => ITEM_KEYS.includes(item))
         : []
@@ -129,13 +180,13 @@ function loadState() {
   const base = freshState();
 
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (saved) return sanitize(saved, base);
   } catch (e) { /* битое сохранение — начинаем аккуратно */ }
 
   // Миграция со старой версии игры.
   try {
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY) || "null");
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY) ?? "null");
     if (legacy && typeof legacy === "object") {
       base.coins = toCount(legacy.coins);
       base.served = toCount(legacy.served);
@@ -149,12 +200,12 @@ function loadState() {
 }
 
 let state = loadState();
-if (!state.order) state.order = makeOrder(null);
-
+let booted = false;
 let storageWarned = false;
 
 function save() {
   try {
+    state.version = SAVE_VERSION;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     // Приватный режим или переполненное хранилище — играем без сохранения.
@@ -163,6 +214,12 @@ function save() {
       forestMessage("Браузер не разрешает сохранение — прогресс не сохранится.");
     }
   }
+}
+
+function commit() {
+  checkAchievements();
+  save();
+  updateUI();
 }
 
 /* ============================================================
@@ -174,14 +231,10 @@ function recipeById(id) {
 }
 
 function currentRecipe() {
-  const recipe = state.order && recipeById(state.order.recipeId);
+  const recipe = state.order ? recipeById(state.order.recipeId) : null;
   if (recipe) return recipe;
   state.order = makeOrder(null);
   return recipeById(state.order.recipeId);
-}
-
-function hasUpgrade(id) {
-  return state.upgrades.includes(id);
 }
 
 function hintCost() {
@@ -197,25 +250,68 @@ function itemLabel(key) {
 }
 
 function smellLine(items) {
-  const parts = uniqueItems(items).map((key) => SMELL[key]);
-  return parts.join(", а ещё ");
+  return uniqueItems(items).map((key) => SMELL[key]).join(", а ещё ");
 }
 
 function rewardBonus() {
   return Math.min(state.streak, STREAK_BONUS_CAP);
 }
 
+// Чего не хватает для текущего заказа с учётом уже положенного в котёл.
+function missingIngredients(recipe) {
+  const need = {};
+  for (const item of recipe.items) need[item] = (need[item] ?? 0) + 1;
+  for (const item of state.pot) need[item] = (need[item] ?? 0) - 1;
+
+  return Object.keys(need)
+    .filter((key) => need[key] > 0 && (state.stock[key] ?? 0) < need[key])
+    .map((key) => ({ key, short: need[key] - (state.stock[key] ?? 0) }));
+}
+
 function message(text) {
   const node = $("status");
   node.textContent = text;
   node.classList.remove("pulse");
-  // перезапуск анимации
-  void node.offsetWidth;
+  void node.offsetWidth; // перезапуск анимации
   node.classList.add("pulse");
 }
 
 function forestMessage(text) {
   $("forest-message").textContent = text;
+}
+
+/* ============================================================
+   Достижения и уведомления
+   ============================================================ */
+
+function toast(text) {
+  const box = $("toasts");
+  if (!box) return;
+
+  const node = document.createElement("div");
+  node.className = "toast";
+  node.textContent = text;
+  box.appendChild(node);
+
+  while (box.children.length > 3) box.firstElementChild.remove();
+
+  window.setTimeout(() => {
+    node.classList.add("leaving");
+    window.setTimeout(() => node.remove(), 400);
+  }, 3400);
+}
+
+function checkAchievements() {
+  if (!booted) return;
+
+  for (const achievement of ACHIEVEMENTS) {
+    if (state.achievements.includes(achievement.id)) continue;
+    if (!achievement.test(state)) continue;
+
+    state.achievements.push(achievement.id);
+    toast("🏅 " + achievement.name + " — " + achievement.desc);
+    playAchievement();
+  }
 }
 
 /* ============================================================
@@ -226,7 +322,7 @@ function buildIngredients() {
   const wrap = $("ingredients");
   wrap.innerHTML = "";
 
-  for (const key of ITEM_KEYS) {
+  ITEM_KEYS.forEach((key, index) => {
     const item = ITEMS[key];
     const button = document.createElement("button");
     button.type = "button";
@@ -245,31 +341,31 @@ function buildIngredients() {
     count.className = "ing-count";
     count.textContent = "0";
 
-    button.append(emoji, name, count);
+    const key_ = document.createElement("kbd");
+    key_.className = "ing-key";
+    key_.textContent = String(index + 1);
+
+    button.append(emoji, name, count, key_);
     button.addEventListener("click", () => addToPot(key));
     wrap.appendChild(button);
-  }
+  });
 }
 
 function updateIngredientUI() {
   for (const key of ITEM_KEYS) {
     const button = document.querySelector('[data-item="' + key + '"]');
     if (!button) continue;
-    const amount = state.stock[key] || 0;
+    const amount = state.stock[key] ?? 0;
     button.querySelector(".ing-count").textContent = amount;
     button.classList.toggle("empty", amount === 0);
-    button.setAttribute("aria-label", ITEMS[key].name + ": в запасе " + amount);
+    button.setAttribute("aria-label", ITEMS[key].name + ": в запасе " + amount + ". Клавиша " + (ITEM_KEYS.indexOf(key) + 1));
   }
 
-  const chips = ITEM_KEYS.map((key) => {
-    const amount = state.stock[key] || 0;
-    return (
-      '<span class="chip' + (amount ? "" : " chip-empty") + '">' +
-      ITEMS[key].emoji + " " + amount +
-      "</span>"
-    );
-  });
-  $("stock").innerHTML = chips.join("");
+  $("stock").innerHTML = ITEM_KEYS.map((key) => {
+    const amount = state.stock[key] ?? 0;
+    return '<span class="chip' + (amount ? "" : " chip-empty") + '">' +
+      ITEMS[key].emoji + " " + amount + "</span>";
+  }).join("");
 }
 
 function renderGrimoire() {
@@ -288,14 +384,14 @@ function renderGrimoire() {
     const meta = document.createElement("span");
     meta.className = "grim-meta";
     meta.textContent = known
-      ? recipe.guest + " • " +
-        uniqueItems(recipe.items).map(itemLabel).join(" + ") +
-        " • " + recipe.reward + " 🪙"
+      ? recipe.guest + " • " + uniqueItems(recipe.items).map(itemLabel).join(" + ") + " • " + recipe.reward + " 🪙"
       : recipe.guest + " • рецепт ещё не открыт";
 
     li.append(name, meta);
     list.appendChild(li);
   }
+
+  $("grimoire-count").textContent = state.discovered.length + " / " + RECIPES.length;
 }
 
 function renderUpgrades() {
@@ -303,7 +399,7 @@ function renderUpgrades() {
   wrap.innerHTML = "";
 
   for (const upgrade of UPGRADES) {
-    const owned = hasUpgrade(upgrade.id);
+    const owned = state.upgrades.includes(upgrade.id);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "upgrade" + (owned ? " owned" : "");
@@ -327,6 +423,38 @@ function renderUpgrades() {
   }
 }
 
+function renderAchievements() {
+  const list = $("achievements");
+  list.innerHTML = "";
+
+  for (const achievement of ACHIEVEMENTS) {
+    const unlocked = state.achievements.includes(achievement.id);
+    const li = document.createElement("li");
+    li.className = "ach" + (unlocked ? " unlocked" : "");
+
+    const mark = document.createElement("span");
+    mark.className = "ach-mark";
+    mark.textContent = unlocked ? "🏅" : "·";
+    mark.setAttribute("aria-hidden", "true");
+
+    const body = document.createElement("span");
+    body.className = "ach-body";
+
+    const name = document.createElement("strong");
+    name.textContent = achievement.name;
+
+    const desc = document.createElement("small");
+    desc.textContent = achievement.desc;
+
+    body.append(name, desc);
+    li.append(mark, body);
+    li.setAttribute("aria-label", (unlocked ? "Получено: " : "Не получено: ") + achievement.name + " — " + achievement.desc);
+    list.appendChild(li);
+  }
+
+  $("ach-count").textContent = state.achievements.length + " / " + ACHIEVEMENTS.length;
+}
+
 function updateUI() {
   const recipe = currentRecipe();
 
@@ -336,25 +464,29 @@ function updateUI() {
   $("stat-left").textContent = state.leftGuests;
 
   $("order").textContent = recipe.guest + " просит: «" + recipe.name + "»";
-  $("guest-hint").textContent =
-    "Гость бормочет: «Пахнет " + smellLine(recipe.items) + "»";
+  $("guest-hint").textContent = "Гость бормочет: «Пахнет " + smellLine(recipe.items) + "»";
 
   const bonus = rewardBonus();
-  $("reward").textContent =
-    "Награда: " + recipe.reward + " 🪙" +
+  $("reward").textContent = "Награда: " + recipe.reward + " 🪙" +
     (bonus ? " + " + bonus + " 🪙 за серию" : "");
-
-  const attempts = $("attempts");
-  attempts.textContent = "попыток: " + state.order.tries;
-  attempts.classList.toggle("spent", state.order.tries < MAX_TRIES);
 
   const known = uniqueItems(recipe.items);
   const revealed = state.order.revealed;
   $("revealed").textContent = revealed.length
-    ? "Гримуар: " + known.map((key) =>
-        revealed.includes(key) ? itemLabel(key) : "❔ ???"
-      ).join(" • ")
+    ? "Гримуар: " + known.map((key) => (revealed.includes(key) ? itemLabel(key) : "❔ ???")).join(" • ")
     : "";
+
+  const missing = missingIngredients(recipe);
+  $("supply").textContent = missing.length
+    ? "Не хватает: " + missing
+        .map((entry) => ITEMS[entry.key].emoji + " " + ITEMS[entry.key].name +
+          (entry.short > 1 ? " ×" + entry.short : "") + " — " + ITEMS[entry.key].where)
+        .join(", ")
+    : "";
+
+  const attempts = $("attempts");
+  attempts.textContent = "попыток: " + state.order.tries + " / " + maxTries();
+  attempts.classList.toggle("spent", state.order.tries < maxTries());
 
   const hint = $("hint");
   const cost = hintCost();
@@ -362,13 +494,14 @@ function updateUI() {
   hint.textContent = allKnown
     ? "🕯 Гримуар уже всё рассказал"
     : cost
-      ? "🕯 Подсказка — " + cost + " 🪙"
-      : "🕯 Подсказка — бесплатно";
+      ? "🕯 Подсказка — " + cost + " 🪙 (ключ H)"
+      : "🕯 Подсказка — бесплатно (ключ H)";
   hint.disabled = allKnown;
 
   updateIngredientUI();
   renderGrimoire();
   renderUpgrades();
+  renderAchievements();
 }
 
 /* ============================================================
@@ -381,15 +514,14 @@ function addToPot(key) {
     return;
   }
 
-  if ((state.stock[key] || 0) <= 0) {
-    message("«" + ITEMS[key].name + "» закончился. Отправляйся в лес!");
+  if ((state.stock[key] ?? 0) <= 0) {
+    message("«" + ITEMS[key].name + "» закончился. " + ITEMS[key].where.charAt(0).toUpperCase() + ITEMS[key].where.slice(1) + ".");
     return;
   }
 
   state.stock[key]--;
   state.pot.push(key);
-  save();
-  updateUI();
+  commit();
   playPluck();
   message("В котле: " + state.pot.map(itemLabel).join(" + "));
 }
@@ -400,10 +532,9 @@ function clearPot() {
     return;
   }
 
-  for (const item of state.pot) state.stock[item] = (state.stock[item] || 0) + 1;
+  for (const item of state.pot) state.stock[item] = (state.stock[item] ?? 0) + 1;
   state.pot = [];
-  save();
-  updateUI();
+  commit();
   message("Ингредиенты возвращены в запас.");
 }
 
@@ -423,18 +554,15 @@ function brew() {
     state.coins += recipe.reward + bonus;
     state.served++;
     state.streak++;
+    state.bestStreak = Math.max(state.bestStreak, state.streak);
     if (!state.discovered.includes(recipe.id)) state.discovered.push(recipe.id);
 
     state.order = makeOrder(recipe.id);
-    save();
-    updateUI();
+    commit();
     playSuccess();
     flash("good");
-    message(
-      "Зелье готово! «" + recipe.name + "» — гость платит " +
-      recipe.reward + " 🪙" +
-      (bonus ? " и ещё " + bonus + " 🪙 за серию" : "") + "."
-    );
+    message("Зелье готово! «" + recipe.name + "» — гость платит " + recipe.reward + " 🪙" +
+      (bonus ? " и ещё " + bonus + " 🪙 за серию" : "") + ".");
     return;
   }
 
@@ -444,36 +572,33 @@ function brew() {
   flash("bad");
 
   if (state.order.tries > 0) {
-    save();
-    updateUI();
-    message(
-      "Из котла вырвался чёрный дым — это не тот рецепт. " +
-      "Осталось попыток: " + state.order.tries + "."
-    );
+    commit();
+    message("Из котла вырвался чёрный дым — это не тот рецепт. Осталось попыток: " +
+      state.order.tries + ".");
     return;
   }
 
   state.leftGuests++;
   state.order = makeOrder(recipe.id);
-  save();
-  updateUI();
+  commit();
   message("Гость ушёл, не дождавшись. Заказ потерян, серия сброшена.");
 }
 
 function gatherEdge() {
   const found = COMMON_ITEMS[Math.floor(Math.random() * COMMON_ITEMS.length)];
-  state.stock[found] = (state.stock[found] || 0) + 1;
+  state.stock[found] = (state.stock[found] ?? 0) + 1;
+  state.gathered[found] = (state.gathered[found] ?? 0) + 1;
 
   let text = "На опушке ты нашла " + itemLabel(found) + ".";
 
   if (hasUpgrade("bed")) {
     const second = COMMON_ITEMS[Math.floor(Math.random() * COMMON_ITEMS.length)];
-    state.stock[second] = (state.stock[second] || 0) + 1;
+    state.stock[second] = (state.stock[second] ?? 0) + 1;
+    state.gathered[second] = (state.gathered[second] ?? 0) + 1;
     text += " Грядка дала ещё " + itemLabel(second) + ".";
   }
 
-  save();
-  updateUI();
+  commit();
   playPluck();
   forestMessage(text);
 }
@@ -483,27 +608,23 @@ function gatherDeep() {
 
   if (roll < 0.16) {
     playFail();
-    forestMessage(
-      "Тень скользнула между стволов, и ты вернулась с пустыми руками."
-    );
+    forestMessage("Тень скользнула между стволов, и ты вернулась с пустыми руками.");
     return;
   }
 
   if (roll < 0.52) {
-    state.stock["цветок"] = (state.stock["цветок"] || 0) + 1;
-    save();
-    updateUI();
+    state.stock["цветок"] = (state.stock["цветок"] ?? 0) + 1;
+    state.gathered["цветок"] = (state.gathered["цветок"] ?? 0) + 1;
+    commit();
     playSuccess();
-    forestMessage(
-      "В чаще, где не бывает солнца, раскрылся 🌙 Лунный цветок. Редкая удача!"
-    );
+    forestMessage("В чаще, где не бывает солнца, раскрылся 🌙 Лунный цветок. Редкая удача!");
     return;
   }
 
   const found = COMMON_ITEMS[Math.floor(Math.random() * COMMON_ITEMS.length)];
-  state.stock[found] = (state.stock[found] || 0) + 1;
-  save();
-  updateUI();
+  state.stock[found] = (state.stock[found] ?? 0) + 1;
+  state.gathered[found] = (state.gathered[found] ?? 0) + 1;
+  commit();
   playPluck();
   forestMessage("В чаще ты отыскала " + itemLabel(found) + ".");
 }
@@ -520,22 +641,15 @@ function useHint() {
   }
 
   if (state.coins < cost) {
-    message(
-      "Не хватает монет: подсказка стоит " + cost + " 🪙, " +
-      "а у тебя " + state.coins + "."
-    );
+    message("Не хватает монет: подсказка стоит " + cost + " 🪙, а у тебя " + state.coins + ".");
     return;
   }
 
   state.coins -= cost;
   state.order.revealed.push(missing[0]);
-  save();
-  updateUI();
+  commit();
   playHint();
-  message(
-    "🕯 Гримуар шепчет: в «" + recipe.name + "» входит " +
-    itemLabel(missing[0]) + "."
-  );
+  message("🕯 Гримуар шепчет: в «" + recipe.name + "» входит " + itemLabel(missing[0]) + ".");
 }
 
 function buyUpgrade(id) {
@@ -543,23 +657,21 @@ function buyUpgrade(id) {
   if (!upgrade || hasUpgrade(id)) return;
 
   if (state.coins < upgrade.cost) {
-    message(
-      "Нужно " + upgrade.cost + " 🪙, а у тебя " + state.coins + ". " +
-      "Сначала обслужи гостей."
-    );
+    message("Нужно " + upgrade.cost + " 🪙, а у тебя " + state.coins + ". Сначала обслужи гостей.");
     return;
   }
 
   state.coins -= upgrade.cost;
   state.upgrades.push(id);
-  save();
-  updateUI();
+  if (id === "candle") state.order.tries = maxTries();
+
+  commit();
   playUpgrade();
-  message(upgrade.name + " теперь в лавке.");
+  message(upgrade.name + " теперь в лавке." + (id === "candle" ? " У текущего гостя стало больше времени." : ""));
 }
 
 function resetGame() {
-  if (!window.confirm("Начать заново? Монеты, рецепты и запас исчезнут.")) return;
+  if (!window.confirm("Начать заново? Монеты, рецепты, достижения и запас исчезнут.")) return;
 
   state = freshState();
   state.order = makeOrder(null);
@@ -639,12 +751,7 @@ function startDrone() {
 function tone(freq, options = {}) {
   if (!audioCtx || !soundOn) return;
 
-  const type = options.type || "sine";
-  const duration = options.duration || 0.25;
-  const level = options.level || 0.1;
-  const delay = options.delay || 0;
-  const slideTo = options.slideTo || null;
-
+  const { type = "sine", duration = 0.25, level = 0.1, delay = 0, slideTo = null } = options;
   const start = audioCtx.currentTime + delay;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
@@ -687,6 +794,12 @@ function playFail() {
 function playUpgrade() {
   tone(392, { type: "triangle", duration: 0.22, level: 0.06 });
   tone(587.33, { type: "triangle", duration: 0.3, level: 0.05, delay: 0.1 });
+}
+
+function playAchievement() {
+  [659.25, 880, 1318.5].forEach((freq, index) => {
+    tone(freq, { duration: 0.28, level: 0.05, delay: index * 0.07 });
+  });
 }
 
 function setSoundLabel() {
@@ -769,6 +882,7 @@ function potColor() {
   let r = 0;
   let g = 0;
   let b = 0;
+
   for (const key of state.pot) {
     const color = ITEMS[key].color;
     r += color[0];
@@ -1009,13 +1123,7 @@ function drawScene(now) {
     const rise = Math.abs(Math.sin(t * 2 + i * 1.3));
     ctx.fillStyle = "rgba(214, 235, 190, 0.75)";
     ctx.beginPath();
-    ctx.arc(
-      372 + i * 13,
-      248 - rise * (state.pot.length ? 12 : 8),
-      1.4 + (i % 2) * 0.8,
-      0,
-      Math.PI * 2
-    );
+    ctx.arc(372 + i * 13, 248 - rise * (state.pot.length ? 12 : 8), 1.4 + (i % 2) * 0.8, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -1042,13 +1150,7 @@ function drawScene(now) {
           const alpha = Math.max(0, 0.9 - progress);
           ctx.fillStyle = "rgba(240, 214, 140, " + alpha.toFixed(3) + ")";
           ctx.beginPath();
-          ctx.arc(
-            flameX + Math.cos(angle) * distance,
-            250 + Math.sin(angle) * distance * 0.6,
-            2.2 * (1 - progress) + 0.4,
-            0,
-            Math.PI * 2
-          );
+          ctx.arc(flameX + Math.cos(angle) * distance, 250 + Math.sin(angle) * distance * 0.6, 2.2 * (1 - progress) + 0.4, 0, Math.PI * 2);
           ctx.fill();
         }
       } else {
@@ -1081,11 +1183,73 @@ function startScene() {
 }
 
 /* ============================================================
+   Клавиатура
+   ============================================================ */
+
+function isTypingTarget(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  return /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable;
+}
+
+function handleKeydown(event) {
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (isTypingTarget(event.target)) return;
+
+  const digit = Number.parseInt(event.key, 10);
+  if (Number.isInteger(digit) && digit >= 1 && digit <= ITEM_KEYS.length) {
+    addToPot(ITEM_KEYS[digit - 1]);
+    event.preventDefault();
+    return;
+  }
+
+  // Кнопки в фокусе сами обрабатывают Enter/Space — не дублируем действие.
+  const onButton = event.target instanceof HTMLElement && event.target.closest("button");
+
+  if (event.key === "Enter" && !onButton) {
+    brew();
+    event.preventDefault();
+    return;
+  }
+
+  if (event.key === "Escape") {
+    clearPot();
+    event.preventDefault();
+    return;
+  }
+
+  if ((event.key === "h" || event.key === "H" || event.key === "р" || event.key === "Р") && !onButton) {
+    useHint();
+    event.preventDefault();
+  }
+}
+
+/* ============================================================
+   PWA
+   ============================================================ */
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (!/^https?:$/.test(location.protocol)) return;
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      /* офлайн-режим просто не включится */
+    });
+  });
+}
+
+/* ============================================================
    Запуск
    ============================================================ */
 
 function init() {
+  if (!state.order) state.order = makeOrder(null);
+
   buildIngredients();
+
+  $("version").textContent = "v" + GAME_VERSION;
+  $("grimoire-count").textContent = "0 / " + RECIPES.length;
+  $("ach-count").textContent = "0 / " + ACHIEVEMENTS.length;
 
   $("hint").addEventListener("click", useHint);
   $("brew").addEventListener("click", brew);
@@ -1094,6 +1258,7 @@ function init() {
   $("gather-deep").addEventListener("click", gatherDeep);
   $("reset").addEventListener("click", resetGame);
   $("sound").addEventListener("click", () => setSound(!soundOn));
+  document.addEventListener("keydown", handleKeydown);
 
   // Звук можно включить только после жеста пользователя.
   document.addEventListener(
@@ -1120,6 +1285,9 @@ function init() {
   updateUI();
   save();
   startScene();
+
+  booted = true;
+  registerServiceWorker();
 }
 
 init();
