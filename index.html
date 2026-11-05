@@ -2,46 +2,95 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0e0d">
+  <meta name="description" content="Ведьмина лавка — мрачная сказка у края леса: вари зелья, собирай ингредиенты и открывай гримуар.">
+  <meta name="color-scheme" content="dark">
   <title>Ведьмина лавка</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main id="game">
-    <h1>Ведьмина лавка</h1>
-    <p>Мрачная сказка у края леса</p>
+    <header class="head">
+      <h1>Ведьмина лавка</h1>
+      <p class="tagline">Мрачная сказка у края леса <span id="version" class="version">v2.0</span></p>
+    </header>
 
-    <canvas id="scene" width="600" height="340"></canvas>
+    <canvas id="scene" width="600" height="340" role="img"
+      aria-label="Избушка ведьмы в ночном лесу: луна, котёл на огне и гость у двери"></canvas>
 
-    <div id="stats"></div>
+    <div id="stats" class="stats">
+      <div class="stat"><span>Монеты</span><strong id="stat-coins">0</strong></div>
+      <div class="stat"><span>Заказы</span><strong id="stat-served">0</strong></div>
+      <div class="stat"><span>Серия</span><strong id="stat-streak">0</strong></div>
+      <div class="stat"><span>Ушло</span><strong id="stat-left">0</strong></div>
+    </div>
 
-    <section>
-      <h2>Гость у дверей</h2>
-      <p id="order"></p>
-      <p id="recipe"></p>
-    </section>
-
-    <section>
-      <h2>🌲 Тёмный лес</h2>
-      <p id="stock"></p>
-      <p id="forest-message">Между деревьями что-то мерцает...</p>
-      <button id="gather">Отправиться в лес</button>
-    </section>
-
-    <section>
-      <h2>Котёл</h2>
-      <p id="status">Выбери ингредиенты для зелья.</p>
-      <div class="ingredients">
-        <button data-item="гриб">🍄 Гриб</button>
-        <button data-item="трава">🌿 Трава</button>
-        <button data-item="ягода">🫐 Ягода</button>
+    <section class="card">
+      <div class="card-head">
+        <h2>Гость у дверей</h2>
+        <span id="attempts" class="badge">попыток: 2</span>
       </div>
-      <button id="brew">🔥 Сварить зелье</button>
-      <button id="clear">Очистить котёл</button>
+      <p id="order"></p>
+      <p id="guest-hint" class="muted"></p>
+      <p id="revealed" class="muted small" aria-live="polite"></p>
+      <p id="supply" class="supply small" aria-live="polite"></p>
+      <p id="reward" class="muted"></p>
+      <button id="hint" class="ghost">🕯 Подсказка — 4 🪙</button>
     </section>
 
-    <button id="sound">🔇 Включить звук</button>
+    <section class="card">
+      <h2>🌲 Тёмный лес</h2>
+      <p id="stock" class="stock"></p>
+      <p id="forest-message" class="muted" aria-live="polite">Между деревьями что-то мерцает...</p>
+      <div class="row">
+        <button id="gather-edge">🌾 На опушку</button>
+        <button id="gather-deep">🌲 В чащу</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Котёл</h2>
+      <p id="status" aria-live="polite">Выбери два ингредиента для зелья.</p>
+      <div id="ingredients" class="ingredients"></div>
+      <div class="row">
+        <button id="brew">🔥 Сварить зелье</button>
+        <button id="clear" class="ghost">Очистить котёл</button>
+      </div>
+      <p class="hint-line small">Клавиши: <kbd>1</kbd>–<kbd>4</kbd> — ингредиент, <kbd>Enter</kbd> — варить, <kbd>Esc</kbd> — очистить</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>📖 Гримуар</h2>
+        <span id="grimoire-count" class="badge">0 / 10</span>
+      </div>
+      <ul id="grimoire" class="grimoire"></ul>
+    </section>
+
+    <section class="card">
+      <h2>🕯 Лавка</h2>
+      <div id="upgrades" class="upgrades"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>🏅 Достижения</h2>
+        <span id="ach-count" class="badge">0 / 6</span>
+      </div>
+      <ul id="achievements" class="achievements"></ul>
+    </section>
+
+    <footer class="foot">
+      <button id="sound">🔇 Включить звук</button>
+      <button id="reset" class="ghost danger">Начать заново</button>
+    </footer>
   </main>
+
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
   <script src="game.js"></script>
 </body>
 </html>
