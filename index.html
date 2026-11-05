@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ведьмина лавка</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="game">
+    <h1>Ведьмина лавка</h1>
+    <p>Мрачная сказка у края леса</p>
+
+    <canvas id="scene" width="600" height="340"></canvas>
+
+    <div id="stats"></div>
+
+    <section>
+      <h2>Гость у дверей</h2>
+      <p id="order"></p>
+      <p id="recipe"></p>
+    </section>
+
+    <section>
+      <h2>🌲 Тёмный лес</h2>
+      <p id="stock"></p>
+      <p id="forest-message">Между деревьями что-то мерцает...</p>
+      <button id="gather">Отправиться в лес</button>
+    </section>
+
+    <section>
+      <h2>Котёл</h2>
+      <p id="status">Выбери ингредиенты для зелья.</p>
+      <div class="ingredients">
+        <button data-item="гриб">🍄 Гриб</button>
+        <button data-item="трава">🌿 Трава</button>
+        <button data-item="ягода">🫐 Ягода</button>
+      </div>
+      <button id="brew">🔥 Сварить зелье</button>
+      <button id="clear">Очистить котёл</button>
+    </section>
+
+    <button id="sound">🔇 Включить звук</button>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>
