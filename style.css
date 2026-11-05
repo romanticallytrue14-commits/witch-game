@@ -1,0 +1,99 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #0b0e0d;
+  color: #eee2c8;
+  font-family: Georgia, serif;
+}
+
+#game {
+  max-width: 600px;
+  min-height: 100vh;
+  margin: auto;
+  padding: 16px;
+  background: linear-gradient(#111b18, #211b19 70%, #110e0d);
+}
+
+h1 {
+  margin: 8px 0;
+  text-align: center;
+  font-size: 28px;
+  letter-spacing: 2px;
+  color: #e4d4ad;
+  text-shadow: 0 0 20px #b17d42;
+}
+
+#game > p {
+  text-align: center;
+  color: #a99f89;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #665a43;
+  border-radius: 12px;
+  background: #080e0c;
+}
+
+#stats {
+  padding: 14px 4px;
+  color: #dfc68c;
+}
+
+section {
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid #665541;
+  border-radius: 12px;
+  background: #1c1a17;
+  box-shadow: inset 0 0 22px #080908;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 19px;
+  color: #d9c69c;
+}
+
+section p {
+  margin: 8px 0;
+  line-height: 1.4;
+}
+
+#recipe, #forest-message {
+  color: #a79f8d;
+  font-size: 14px;
+}
+
+#status {
+  min-height: 42px;
+  color: #b8c7aa;
+}
+
+.ingredients {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+button {
+  min-height: 48px;
+  padding: 8px;
+  border: 1px solid #75674c;
+  border-radius: 9px;
+  background: linear-gradient(#38372a, #24251d);
+  color: #f0e4c8;
+  font-family: Georgia, serif;
+  font-size: 15px;
+  touch-action: manipulation;
+}
+
+button:active { background: #656047; }
+
+#gather, #brew, #clear, #sound {
+  width: 100%;
+  margin-top: 8px;
+}
