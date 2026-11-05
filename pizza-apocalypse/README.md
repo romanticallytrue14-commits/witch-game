@@ -13,6 +13,8 @@ python3 -m http.server 3000 --directory pizza-apocalypse
 
 ## Установка на телефон
 
+Постоянная ссылка: **https://romanticallytrue14-commits.github.io/witch-game/pizza-apocalypse/**
+
 Игра поддерживает установку как PWA: ярлык на главном экране, отдельное окно
 и офлайн-режим после первой загрузки. Нужна HTTPS-ссылка, открытая в обычном
 браузере телефона, а не во встроенном окне чата.
