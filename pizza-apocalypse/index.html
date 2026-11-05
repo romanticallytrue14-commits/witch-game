@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101318">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Пицца апокалипсиса — бесплатные браузерные гонки на выживание. Зомби-такси, пицца-пушка, нитро и очень сомнительные решения.">
+  <title>Пицца апокалипсиса — гонки на выживание</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Пицца 666">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="i-pizza" viewBox="0 0 32 32"><path d="M5 8Q16 3 27 8L16 28Z" fill="#f5df4d"/><path d="M5 8Q16 3 27 8" fill="none" stroke="#c77b3e" stroke-width="4" stroke-linecap="round"/><g fill="#ff624d"><circle cx="12" cy="12" r="2.5"/><circle cx="21" cy="12" r="2.5"/><circle cx="16" cy="21" r="2.3"/></g></symbol>
+    <symbol id="i-fuel" viewBox="0 0 32 32"><rect x="7" y="8" width="17" height="21" rx="3" fill="currentColor"/><rect x="10" y="3" width="11" height="5" rx="1" fill="currentColor"/><path d="M11 13l9 10m0-10l-9 10" stroke="#191e25" stroke-width="2.5"/><path d="M24 12h3v10h-3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 32 32"><path d="M21 4a8 8 0 0 0-8 10L5 22a4 4 0 0 0 6 6l8-8A8 8 0 0 0 29 10l-5 5-5-5 5-5a8 8 0 0 0-3-1Z" fill="currentColor"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4Z" fill="currentColor"/><path d="M16 8q4 4 0 8m3-11q6 7 0 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-install" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 6v7m-3-3 3 3 3-3M9.5 18h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4Z" fill="currentColor"/><path d="M17 9l5 6m0-6l-5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  </defs></svg>
+  <div class="page">
+    <header class="masthead">
+      <a class="brand" href="./" aria-label="Пицца апокалипсиса — главная">
+        <span class="brand-icon" aria-hidden="true"><svg><use href="#i-pizza"/></svg></span>
+        <span>ПИЦЦА<span class="brand-second">АПОКАЛИПСИСА</span></span>
+      </a>
+      <div class="masthead-right">
+        <span class="live-label"><i></i> ДОСТАВКА РАБОТАЕТ. ПОЧТИ.</span>
+        <button id="install" class="icon-button install-button" type="button" title="Установить на телефон" aria-label="Установить игру на телефон"><svg class="btn-icon"><use href="#i-install"/></svg><span>На телефон</span></button>
+        <button id="sound" class="icon-button" type="button" aria-pressed="false" title="Включить звук"><svg class="btn-icon"><use href="#i-mute"/></svg><span>Звук выкл.</span></button>
+        <button id="pause" class="icon-button" type="button" disabled title="Пауза (P)">❚❚ <span>Пауза</span></button>
+      </div>
+    </header>
+
+    <main>
+      <div class="game-heading">
+        <p class="eyebrow">АРКАДА / БЕСКОНЕЧНЫЕ ГОНКИ / НИКАКИХ ГАРАНТИЙ</p>
+        <div class="record"><span>ЛИЧНЫЙ РЕКОРД</span><strong id="best">0</strong><small>ОЧКОВ</small></div>
+      </div>
+
+      <section class="game-shell" aria-label="Игра Пицца апокалипсиса">
+        <div class="dashboard">
+          <div class="meter health-meter"><div class="meter-label"><span> ПРОЧНОСТЬ</span><b id="health-value">100%</b></div><div class="meter-track" role="progressbar" aria-label="Прочность" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" id="health-bar"><i></i></div></div>
+          <div class="meter fuel-meter"><div class="meter-label"><span><svg class="meter-icon"><use href="#i-fuel"/></svg> БЕНЗИН</span><b id="fuel-value">100%</b></div><div class="meter-track" role="progressbar" aria-label="Бензин" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" id="fuel-bar"><i></i></div></div>
+          <div class="meter nitro-meter"><div class="meter-label"><span>ϟ НИТРО</span><b id="nitro-value">100%</b></div><div class="meter-track" role="progressbar" aria-label="Нитро" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" id="nitro-bar"><i></i></div></div>
+          <div class="score-block"><span>ОЧКИ</span><strong id="score">000000</strong></div>
+          <div class="distance-block"><strong id="distance">0</strong><span>МЕТРОВ</span></div>
+        </div>
+
+        <div class="stage" id="stage">
+          <canvas id="road" width="1000" height="620" tabindex="0" aria-label="Четырёхполосное шоссе. Стрелки влево и вправо — перестроение, пробел — пицца-пушка, Shift — нитро."></canvas>
+          <div class="stage-top" aria-hidden="true">
+            <span id="district" class="district-tag">01 / СПАЛЬНЫЙ АД</span>
+            <span id="combo" class="combo-tag" hidden>×2 СЕРИЯ</span>
+            <span id="speed" class="speed-tag">105 <small>КМ/Ч</small></span>
+          </div>
+          <div id="district-banner" class="district-banner" hidden></div>
+
+          <section id="start-screen" class="screen start-screen" aria-labelledby="game-title">
+            <div class="screen-copy">
+              <span class="yellow-label">30 МИНУТ ИЛИ ТЕБЯ СЪЕДЯТ</span>
+              <h1 id="game-title">ПИЦЦА<br><span>АПОКАЛИПСИСА</span></h1>
+              <p class="lead">Мир рухнул.<br>Заказы — нет.</p>
+              <p class="intro">Прорвись через зомби-такси и вечный ремонт. Пицца-пушка заряжена. Страховка — нет.</p>
+              <button id="start" class="primary-button" type="button">ПОГНАЛИ! <span aria-hidden="true">↗</span></button>
+              <p class="start-hint">Enter — начать · Можно играть офлайн</p>
+            </div>
+            <div class="car-sticker" aria-hidden="true"><span>КУРЬЕР</span><strong>НЕУДАЧНИК</strong><small>НО ОЧЕНЬ БЫСТРЫЙ</small></div>
+          </section>
+
+          <section id="pause-screen" class="screen centered-screen" aria-labelledby="pause-title" hidden>
+            <div class="modal-copy">
+              <span class="yellow-label">ДВИГАТЕЛЬ НА ХОЛОСТЫХ</span>
+              <h2 id="pause-title">ПЕРЕКУР.</h2>
+              <p>Зомби подождут. У них профсоюз.</p>
+              <button id="resume" class="primary-button" type="button">ПРОДОЛЖИТЬ <span aria-hidden="true">→</span></button>
+              <button id="pause-restart" class="text-button" type="button">Начать новый заезд</button>
+            </div>
+          </section>
+
+          <section id="over-screen" class="screen centered-screen" aria-labelledby="over-title" hidden>
+            <div class="modal-copy">
+              <span id="over-label" class="yellow-label">ДОСТАВКА НЕ СОСТОЯЛАСЬ</span>
+              <h2 id="over-title">НУ ТЫ ДАЁШЬ.</h2>
+              <p id="over-reason">Коробка помялась. И ты тоже.</p>
+              <div class="result-grid">
+                <div><strong id="result-score">0</strong><span>ОЧКОВ</span></div>
+                <div><strong id="result-distance">0 м</strong><span>ДИСТАНЦИЯ</span></div>
+                <div><strong id="result-kills">0</strong><span>РАСЧИЩЕНО</span></div>
+              </div>
+              <p id="result-tip" class="result-tip"></p>
+              <button id="restart" class="primary-button" type="button">ЕЩЁ ЗАЕЗД <span aria-hidden="true">↻</span></button>
+              <button id="garage" class="text-button" type="button">В гараж</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="radio" id="radio"><span class="radio-avatar" aria-hidden="true"><svg><use href="#i-pizza"/></svg></span><div><span class="radio-label">ДИСПЕТЧЕР НА СВЯЗИ</span><p id="radio-message" role="status" aria-live="polite">Если пицца остынет — клиент остынет тоже. Шутка. Он уже зомби.</p></div><span class="radio-wave" aria-hidden="true">▂▅▃▆▂</span></div>
+
+        <div class="controls" aria-label="Управление автомобилем">
+          <div class="steer-controls">
+            <button id="left" class="control-button" type="button" aria-label="Перестроиться влево">←</button>
+            <button id="right" class="control-button" type="button" aria-label="Перестроиться вправо">→</button>
+            <span class="control-caption">РУЛЬ<small>A / D · ← / →</small></span>
+          </div>
+          <button id="fire" class="control-button fire-button" type="button"><svg class="btn-icon""><use href="#i-pizza"/></svg> ПИЦЦА-ПУШКА<small>ПРОБЕЛ · УДЕРЖИВАЙ</small></button>
+          <button id="boost" class="control-button boost-button" type="button"><span aria-hidden="true">ϟ</span> НИТРО<small>SHIFT · УДЕРЖИВАЙ</small></button>
+        </div>
+      </section>
+
+      <section class="briefing" aria-label="Правила и рекорды">
+        <div class="briefing-copy">
+          <p class="eyebrow">ИНСТРУТАКТАЖ ОТ ДЕДА</p>
+          <h2>ГАЗ В ПОЛ.<br><span>ПИЦЦУ НЕ РОНЯТЬ.</span></h2>
+          <p>Едь как можно дальше. Бензин тратится всегда, прочность — при столкновениях. Нитро сносит препятствия и удваивает удовольствие. Тормоза для слабаков.</p>
+          <ul class="legend">
+            <li><b class="legend-icon fuel"><svg><use href="#i-fuel"/></svg></b><span><strong>Канистра</strong> +28 бензина</span></li>
+            <li><b class="legend-icon repair"><svg><use href="#i-wrench"/></svg></b><span><strong>Изолента</strong> +30 прочности</span></li>
+            <li><b class="legend-icon nitro">ϟ</b><span><strong>Батарея</strong> +40 нитро</span></li>
+            <li><b class="legend-icon pizza"><svg><use href="#i-pizza"/></svg></b><span><strong>Чаевые</strong> +250 очков</span></li>
+          </ul>
+          <p class="fine-print">Стреляй очередями, собирай припасы и меняй полосу заранее. Уничтожай препятствия подряд — множитель растёт до ×5. P / Esc — пауза. На телефоне удерживай кнопки внизу.</p>
+        </div>
+        <aside class="leaderboard">
+          <div class="leaderboard-head"><h2>ДОСКА ПОЗОРА</h2><span>ТОП-5 НА ЭТОМ УСТРОЙСТВЕ</span></div>
+          <ol id="records"><li class="empty-records">Здесь пока тихо.<br><span>Испорти это первым заездом.</span></li></ol>
+          <p>Рекорды сохраняются в браузере. Навсегда? Пока не почистишь историю.</p>
+        </aside>
+      </section>
+    </main>
+    <footer><span>СДЕЛАНО С ПЕППЕРОНИ И ПЛОХИМИ РЕШЕНИЯМИ.</span><span>16+ · ЗОМБИ НЕНАСТОЯЩИЕ. ДЕДЛАЙНЫ — ДА.</span></footer>
+  </div>
+  <dialog id="install-dialog" class="install-dialog" aria-labelledby="install-title">
+    <button id="install-close" class="dialog-close" type="button" aria-label="Закрыть">×</button>
+    <span class="yellow-label">ДОСТАВКА В КАРМАНЕ</span>
+    <h2 id="install-title">ПИЦЦА С СОБОЙ</h2>
+    <p class="install-lead">Добавь игру на главный экран — и она откроется как приложение. После загрузки офлайн-копии интернет не нужен.</p>
+    <p id="install-status" class="install-status" role="status" aria-live="polite" data-state="pending">Загружаем офлайн-копию…</p>
+    <button id="install-native" class="primary-button install-native" type="button" hidden>УСТАНОВИТЬ <span aria-hidden="true">↗</span></button>
+    <div class="install-columns">
+      <section><h3>Android · Chrome</h3><ol><li>Открой меню <b>⋮</b> справа вверху.</li><li>Выбери <b>«Установить приложение»</b> или <b>«Добавить на главный экран»</b>.</li><li>Подтверди — иконка пиццы появится на телефоне.</li></ol></section>
+      <section><h3>iPhone · Safari</h3><ol><li>Нажми <b>«Поделиться»</b> — квадрат со стрелкой.</li><li>Выбери <b>«На экран “Домой”»</b>.</li><li>Нажми <b>«Добавить»</b> в правом верхнем углу.</li></ol></section>
+    </div>
+    <p class="install-note">Если кнопка установки не появляется, используй инструкцию выше. Открывай игру в обычном браузере, а не во встроенном окне чата.</p>
+    <div id="install-link-row" class="install-link-row"><label for="install-link">Ссылка для телефона</label><div><input id="install-link" type="url" readonly><button id="install-copy" class="icon-button" type="button">Скопировать ссылку</button></div></div>
+  </dialog>
+  <noscript><p class="noscript">Для заезда нужен JavaScript. Включи его в настройках браузера.</p></noscript>
+  <script src="engine.js"></script>
+  <script src="game.js"></script>
+  <script src="install.js"></script>
+</body>
+</html>
