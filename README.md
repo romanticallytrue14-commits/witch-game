@@ -1,10 +1,16 @@
 # Ведьмина лавка — v2.0
 
-> В репозитории теперь две игры. Новая: **[Пицца апокалипсиса](pizza-apocalypse/)** —
-> гонки на выживание с пицца-пушкой, нитро и зомби-такси. Открой `pizza-apocalypse/index.html`.
-> «Ведьмина лавка» ниже полностью сохранена без изменений.
+> В репозитории есть две игры и две музыкальные веб-приложения:
+> - **[Пицца апокалипсиса](pizza-apocalypse/)** — гонки на выживание с пицца-пушкой,
+>   нитро и зомби-такси.
+> - **[Witchbeat](drum-machine/)** — карманная драм-машина для телефона: 16 шагов,
+>   пять ударных голосов, темп, свинг и офлайн-режим.
+> - **[Witchwave](modular-synth/)** — модульный синтезатор для телефона.
+> - **«Ведьмина лавка»** ниже полностью сохранена без изменений.
 >
-> Постоянная ссылка на новую игру: https://romanticallytrue14-commits.github.io/witch-game/pizza-apocalypse/
+> Постоянные ссылки: [Пицца апокалипсиса](https://romanticallytrue14-commits.github.io/witch-game/pizza-apocalypse/)
+> · [Witchbeat](https://romanticallytrue14-commits.github.io/witch-game/drum-machine/)
+> · [Witchwave](https://romanticallytrue14-commits.github.io/witch-game/modular-synth/).
 
 Небольшая браузерная игра без сборки и зависимостей: ведьма варит зелья для гостей
 у края тёмного леса. Открывается двойным кликом по `index.html` или через любой
