@@ -13,12 +13,35 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=4">
+<script>
+// Самодиагностика: любая ошибка JS показывается прямо на экране, а не молча
+(function(){
+  function show(msg){
+    var b=document.getElementById('errbox');
+    if(!b){b=document.createElement('div');b.id='errbox';document.body.appendChild(b);}
+    b.textContent=msg;b.style.display='block';
+  }
+  window.addEventListener('error',function(ev){
+    var f=(ev.filename||'').split('/').pop();
+    show('⚠ Ошибка: '+(ev.message||'файл не загрузился')+' ('+f+':'+(ev.lineno||'?')+')');
+  });
+  window.addEventListener('unhandledrejection',function(ev){
+    show('⚠ Ошибка: '+String((ev.reason&&ev.reason.message)||ev.reason));
+  });
+  // новый service worker активировался -> перезагрузиться, чтобы получить свежий код
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.addEventListener('message',function(e){
+      if(e.data==='ww-update')location.reload();
+    });
+  }
+})();
+</script>
 </head>
 <body>
 
 <header class="hud">
-  <div class="hud-title">🔮 WITCHWAVE <span>MODULAR</span></div>
+  <div class="hud-title">🔮 WITCHWAVE <span>MODULAR</span><span class="ver" id="verchip">v?</span></div>
   <div class="hud-row">
     <select id="preset" class="hselect" aria-label="Пресет">
       <option value="classic">Классика FM</option>
@@ -37,6 +60,7 @@
   <p class="hint">КОННЕКТОР: нажми светящуюся точку (или уже вставленный провод) и потяни в сокет — модули соединятся.<br>
   Провод можно перетянуть с любого конца: в сокет — сменить вход, на другую точку — сменить выход,
   отпустить в воздухе — снять. Двойной тап по ручке — сброс значения.</p>
+  <div id="patchlist" aria-label="Список соединений"></div>
   <svg id="cables" aria-hidden="true"></svg>
 </div>
 
@@ -63,11 +87,12 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="synth.js"></script>
+<script src="synth.js?v=4"></script>
 <script>
+  // Версионированный URL воркера = гарантированно свежая версия (старый кэш не мешает)
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=4').catch(() => {});
     });
   }
 </script>

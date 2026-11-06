@@ -1,11 +1,11 @@
-/* Witchwave — service worker: офлайн-режим.
- * Кэшируем app-shell при установке, отдаём из кэша, обновляем в фоне. */
-const CACHE = 'witchwave-v3'; // v3: перетаскивание проводов с обоих концов, зоны тапа
+/* Witchwave — service worker v4: network-first (исправления доходят сразу),
+ * офлайн-запас из кэша, авто-перезагрузка клиентов при обновлении. */
+const CACHE = 'witchwave-v4';
 const ASSETS = [
   './',
   './index.html',
-  './style.css',
-  './synth.js',
+  './style.css?v=4',
+  './synth.js?v=4',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -25,40 +25,32 @@ self.addEventListener('activate', (e) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+      .then(() =>
+        self.clients.matchAll().then((clients) => {
+          clients.forEach((c) => c.postMessage('ww-update'));
+        })
+      )
   );
 });
 
-// Стратегия: кэш сначала (для speed), сеть как источник истины, fallback на кэш (для offline).
+// Network-first: всегда пробуем сеть (получаем свежие файлы), кэш — только офлайн-запас.
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  // Только свои ресурсы (без внешних запросов).
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Навигация: пробуем сеть, при падении — кэш index.html.
-  if (req.mode === 'navigate') {
-    e.respondWith(
-      fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put('./index.html', copy));
-        return res;
-      }).catch(() => caches.match('./index.html').then((r) => r || caches.match('./')))
-    );
-    return;
-  }
-
-  // Остальные ассеты: кэш -> сеть (и запоминаем в кэш).
   e.respondWith(
-    caches.match(req).then((hit) => {
-      if (hit) return hit;
-      return fetch(req).then((res) => {
+    fetch(req)
+      .then((res) => {
         if (res && res.status === 200 && res.type === 'basic') {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy));
         }
         return res;
-      });
-    })
+      })
+      .catch(() =>
+        caches.match(req).then((hit) => hit || caches.match('./index.html'))
+      )
   );
 });

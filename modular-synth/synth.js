@@ -6,6 +6,8 @@ const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 
+const APP_VERSION='4.0';
+const NAME={vco1:'VCO1',vco2:'VCO2',lfo:'LFO',env:'ENV',noise:'NOISE',filter:'VCF',vca:'VCA',mix:'MIX',master:'MASTER'};
 const PALETTE={
   vco1:'#ff5db1', vco2:'#59e3ff', lfo:'#ffd166', env:'#7cffb2',
   noise:'#c39bff', filter:'#ff9f5d', vca:'#ff6b6b', mix:'#6bffb8', master:'#59e3ff'
@@ -422,9 +424,54 @@ function updateCable(c){
   c.el.setAttribute('d',d);
   c.hit.setAttribute('d',d);
 }
+// явный пиксельный размер канваса — без % и inset, работает в любом браузере
+function sizeSvg(){
+  const w=Math.round(rackWrap.clientWidth);
+  const h=Math.round(rackWrap.scrollHeight);
+  if(w>0&&h>0){
+    svg.setAttribute('width',w);
+    svg.setAttribute('height',h);
+  }
+}
 function updateAll(){
+  sizeSvg();
   cables.forEach(updateCable);
   if(drag)updateTemp();
+}
+// текстовая копия списка соединений (если SVG вдруг не рисуется — соединения всё равно видны)
+function refreshPatchlist(){
+  const el=document.getElementById('patchlist');
+  if(!el)return;
+  if(!cables.length){el.textContent='— провода не подключены —';return;}
+  el.innerHTML=cables.map(c=>{
+    const om=c.out.split('.')[0],im=c.in.split('.')[0],ip=c.in.split('.')[1];
+    return '<b>'+NAME[om]+'</b>→'+NAME[im]+'.'+String(ip).toUpperCase();
+  }).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+}
+// самопроверка: измеряет канвас и первый провод, при проблеме пишет на экран
+function selfCheck(){
+  let msg=null;
+  const r=svg.getBoundingClientRect();
+  const part='SVG-слой: '+Math.round(r.width)+'×'+Math.round(r.height)+', проводов: '+cables.length;
+  if(r.width<10||r.height<10){
+    msg=part+'. Канвас нулевой — обнови страницу (Safari: значок ⟳) или пересоздай иконку приложения.';
+  }else if(cables.length>0){
+    const p=cables[0].el.getBoundingClientRect();
+    if(p.width<1&&p.height<1)
+      msg=part+'. Провода есть в данных, но не отображаются — пришли скриншот этого сообщения.';
+  }
+  let b=document.getElementById('diagbox');
+  if(msg){
+    if(!b){b=document.createElement('div');b.id='diagbox';document.body.appendChild(b);}
+    b.textContent='⚠ '+msg;b.style.display='block';
+  }else if(b){b.style.display='none';}
+}
+// «лечебный» цикл: несколько раз перерисовывает провода, пока iOS/Safari не стабилизируют вёрстку
+function heal(n){
+  if(n<=0)return;
+  updateAll();
+  selfCheck();
+  setTimeout(function(){heal(n-1);},600);
 }
 function connect(outId,inId,color){
   const old=cables.find(c=>c.in===inId);
@@ -439,12 +486,14 @@ function connect(outId,inId,color){
   cables.push(c);
   updateCable(c);
   if(ready){setJack(inId,true);wireCable(c,true);}
+  refreshPatchlist();
 }
 function removeCable(c){
   if(ready){setJack(c.in,false);wireCable(c,false);}
   c.el.remove();c.hit.remove();
   const i=cables.indexOf(c);
   if(i>=0)cables.splice(i,1);
+  refreshPatchlist();
 }
 function updateTemp(){
   if(!tempEl)tempEl=mkPath('cable temp');
@@ -641,12 +690,12 @@ function applyPreset(name){
 }
 $('#preset').addEventListener('change',e=>applyPreset(e.target.value));
 
-function toast(msg){
+function toast(msg,ms){
   const t=$('#toast');
   t.textContent=msg;
   t.classList.add('show');
   clearTimeout(toastT);
-  toastT=setTimeout(()=>t.classList.remove('show'),1500);
+  toastT=setTimeout(()=>t.classList.remove('show'),ms||1500);
 }
 $('#btnSave').addEventListener('click',()=>{
   try{
@@ -700,7 +749,9 @@ function boot(){
   if(ready)return;
   initAudio();
   $('#start').classList.add('hide');
-  toast('Звук включён — играй на клавишах!');
+  updateAll();selfCheck();
+  heal(8);
+  toast('Соедини модули: нажми и потяни светящуюся точку OUT в любой сокет',3800);
 }
 $('#startBtn').addEventListener('click',e=>{e.stopPropagation();boot();});
 $('#start').addEventListener('click',boot);
@@ -721,12 +772,19 @@ function frame(){
 requestAnimationFrame(frame);
 
 window.addEventListener('resize',updateAll);
-window.addEventListener('orientationchange',()=>setTimeout(updateAll,250));
+window.addEventListener('orientationchange',()=>setTimeout(()=>{updateAll();selfCheck();},250));
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>updateAll());
-window.addEventListener('load',()=>{updateAll();setTimeout(updateAll,300);});
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden){updateAll();heal(3);}
+});
+window.addEventListener('load',()=>{
+  updateAll();selfCheck();
+  heal(10);
+});
 document.addEventListener('contextmenu',e=>{
   if(e.target.closest&&e.target.closest('.rack-wrap,.kbd'))e.preventDefault();
 });
 
 applyPreset('classic');
+{const vc=$('#verchip');if(vc)vc.textContent='v'+APP_VERSION;}
 })();
