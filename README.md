@@ -6,11 +6,13 @@
 > - **[Witchbeat](drum-machine/)** — карманная драм-машина для телефона: 16 шагов
 >   в одну линию, четверти 4/4 и дорожка TB-303.
 > - **[Witchwave](modular-synth/)** — модульный синтезатор для телефона.
+- **[Яйца для волка](egg-game/)** — лови падающие яйца корзиной в стиле Game & Watch.
 > - **«Ведьмина лавка»** ниже полностью сохранена без изменений.
 >
 > Постоянные ссылки: [Пицца апокалипсиса](https://romanticallytrue14-commits.github.io/witch-game/pizza-apocalypse/)
 > · [Witchbeat](https://romanticallytrue14-commits.github.io/witch-game/drum-machine/)
-> · [Witchwave](https://romanticallytrue14-commits.github.io/witch-game/modular-synth/).
+> · [Witchwave](https://romanticallytrue14-commits.github.io/witch-game/modular-synth/)
+> · [Яйца для волка](https://romanticallytrue14-commits.github.io/witch-game/egg-game/).
 
 Небольшая браузерная игра без сборки и зависимостей: ведьма варит зелья для гостей
 у края тёмного леса. Открывается двойным кликом по `index.html` или через любой
