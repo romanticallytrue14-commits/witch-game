@@ -75,22 +75,25 @@ button{font-family:inherit}
 .knobs.k4 .knob-dial{width:32px;height:32px}
 .knobs.k4 .knob-dot{height:9px}
 
-.jacks{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:6px 4px;margin-top:10px}
-.jack{position:relative;width:32px;height:28px;display:grid;place-items:center;touch-action:none;cursor:pointer}
+.jacks{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:2px 4px;margin-top:10px}
+.jack{position:relative;width:34px;height:34px;display:grid;place-items:center;touch-action:none;cursor:pointer}
+.jack::before{content:'';position:absolute;inset:-6px;} /* зона тапа ~46×46 под палец */
 .jack i{
   width:15px;height:15px;border-radius:50%;border:2px solid #4a4a55;
   background:radial-gradient(circle at 35% 30%,#888,#1b1b22 72%);
   box-shadow:inset 0 1px 2px rgba(0,0,0,.8);
-  transition:border-color .1s,box-shadow .1s;
+  transition:border-color .1s,box-shadow .1s,transform .1s;
 }
+.jack.drag-src i{transform:scale(1.2);border-color:#fff;box-shadow:0 0 16px var(--c-glow,#ffffffaa)}
+.jack-out.drag-src i{box-shadow:0 0 18px var(--c-glow),0 0 0 2px #fff inset}
 .jack-out i{
   border-color:var(--c);
   background:radial-gradient(circle at 35% 30%,#fff,var(--c) 55%,#141414 140%);
   box-shadow:0 0 9px var(--c-glow);
 }
 .jack span{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;font-size:8px;letter-spacing:1px;color:var(--dim);white-space:nowrap}
-.jack-in.hilite i{border-color:var(--accent2);box-shadow:0 0 14px rgba(89,227,255,.8)}
-.jack-out.hilite i{box-shadow:0 0 16px var(--c-glow)}
+.jack-in.hilite i{border-color:var(--accent2);box-shadow:0 0 14px rgba(89,227,255,.8);transform:scale(1.15)}
+.jack-out.hilite i{box-shadow:0 0 16px var(--c-glow);border-color:#fff;transform:scale(1.15)}
 
 .mrow{display:flex;align-items:center;gap:16px;margin-top:10px;flex-wrap:wrap}
 .master-meter{flex:1;min-width:110px;height:10px;border:1px solid var(--line);border-radius:6px;background:#241a44;overflow:hidden}
