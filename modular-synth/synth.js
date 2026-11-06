@@ -316,7 +316,7 @@ function initAudio(){
     const i=key.indexOf('.');
     applyKnob(key.slice(0,i),key.slice(i+1),kState[key]);
   }
-  cables.forEach(c=>setJack(c.in,true));
+  cables.forEach(c=>{setJack(c.in,true);wireCable(c,true);});
   setVcoFreqs(lastEff);
   if(ctx.state!=='running')ctx.resume();
 }
@@ -375,6 +375,19 @@ function setJack(inId,on){
   const scale=JACK_SCALE[inId]||1;
   N.jacks[inId].gain.setTargetAtTime(on?scale:0,ctx.currentTime,0.012);
 }
+// id вывода модуля -> его аудио-узел (источник сигнала для провода)
+const OUT_NODE={
+  'vco1.out':()=>N.vco1g,'vco2.out':()=>N.vco2g,'lfo.out':()=>N.lfog,
+  'env.out':()=>N.envg,'noise.out':()=>N.noiseg,'filter.out':()=>N.fg,
+  'vca.out':()=>N.vca,'mix.out':()=>N.mg
+};
+function wireCable(c,on){
+  if(!ready)return;
+  const src=OUT_NODE[c.out]?OUT_NODE[c.out]():null;
+  const dst=N.jacks[c.in];
+  if(!src||!dst)return;
+  if(on)src.connect(dst);else src.disconnect(dst);
+}
 function setWave(mid,w){
   waveState[mid]=w;
   $$('.wave-btn[data-module="'+mid+'"]').forEach(x=>x.classList.toggle('on',x.dataset.wave===w));
@@ -425,10 +438,10 @@ function connect(outId,inId,color){
   c.hit.dataset.out=outId;
   cables.push(c);
   updateCable(c);
-  if(ready)setJack(inId,true);
+  if(ready){setJack(inId,true);wireCable(c,true);}
 }
 function removeCable(c){
-  if(ready)setJack(c.in,false);
+  if(ready){setJack(c.in,false);wireCable(c,false);}
   c.el.remove();c.hit.remove();
   const i=cables.indexOf(c);
   if(i>=0)cables.splice(i,1);
