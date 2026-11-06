@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 <script>
 // Самодиагностика: любая ошибка JS показывается прямо на экране, а не молча
 (function(){
@@ -87,12 +87,12 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="synth.js?v=5"></script>
+<script src="synth.js?v=6"></script>
 <script>
   // Версионированный URL воркера = гарантированно свежая версия (старый кэш не мешает)
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js?v=5').catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=6').catch(() => {});
     });
   }
 </script>
