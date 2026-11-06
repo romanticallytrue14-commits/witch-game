@@ -1,11 +1,11 @@
-/* Witchwave — service worker v5: network-first (исправления доходят сразу),
+/* Witchwave — service worker v6: network-first (исправления доходят сразу),
  * офлайн-запас из кэша, авто-перезагрузка клиентов при обновлении. */
-const CACHE = 'witchwave-v5';
+const CACHE = 'witchwave-v6';
 const ASSETS = [
   './',
   './index.html',
-  './style.css?v=5',
-  './synth.js?v=5',
+  './style.css?v=6',
+  './synth.js?v=6',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

@@ -6,7 +6,7 @@ const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 
-const APP_VERSION='4.1';
+const APP_VERSION='4.2';
 const NAME={vco1:'VCO1',vco2:'VCO2',lfo:'LFO',env:'ENV',noise:'NOISE',filter:'VCF',vca:'VCA',mix:'MIX',master:'MASTER'};
 const PALETTE={
   vco1:'#ff5db1', vco2:'#59e3ff', lfo:'#ffd166', env:'#7cffb2',
@@ -526,6 +526,11 @@ function setDragSrc(el){
 function clearDragHl(){
   setDragSrc(null);
   $$('.jack.hilite').forEach(j=>j.classList.remove('hilite'));
+}
+// позиция указателя относительно стеллажа (для черчения временного провода)
+function wrapPos(e){
+  const wr=rackWrap.getBoundingClientRect();
+  return{x:e.clientX-wr.left,y:e.clientY-wr.top};
 }
 // новый провод от вывода
 function startNewDrag(outId,srcEl,e){
