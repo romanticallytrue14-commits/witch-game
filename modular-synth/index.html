@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b0714">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Witchwave">
+<meta name="description" content="Модульный синтезатор для телефона: VCO, LFO, ADSR, фильтр, VCA и патч-кабели.">
+<title>Witchwave — Modular Synth</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hud">
+  <div class="hud-title">🔮 WITCHWAVE <span>MODULAR</span></div>
+  <div class="hud-row">
+    <select id="preset" class="hselect" aria-label="Пресет">
+      <option value="classic">Классика FM</option>
+      <option value="witch-pad">Пад ведьмы</option>
+      <option value="dark-bass">Тёмный бас</option>
+      <option value="noise-lead">Шумовой лид</option>
+    </select>
+    <button class="hbtn" id="btnRand">RND</button>
+    <button class="hbtn" id="btnSave">SAVE</button>
+    <button class="hbtn" id="btnLoad">LOAD</button>
+  </div>
+</header>
+
+<div class="rack-wrap" id="rackWrap">
+  <div class="rack" id="rack"></div>
+  <p class="hint">Тяни от вывода (светящаяся точка) ко входу (сокет), чтобы подключить модули.
+  Тап по проводу — отсоединить. Двойной тап по ручке — сброс значения.</p>
+  <svg id="cables" aria-hidden="true"></svg>
+</div>
+
+<div class="kbd" id="kbd">
+  <div class="kbd-top">
+    <div class="kbd-left">
+      <button class="hbtn" id="octDn">OCT −</button>
+      <span class="oct" id="octVal">+0</span>
+      <button class="hbtn" id="octUp">OCT +</button>
+    </div>
+    <button class="hbtn hold" id="btnHold">HOLD</button>
+  </div>
+  <div class="keys" id="keys"></div>
+</div>
+
+<div class="start" id="start">
+  <div class="start-card">
+    <div class="start-icon">🔮</div>
+    <h1>WITCHWAVE</h1>
+    <p>модульный синтезатор для телефона</p>
+    <button class="start-btn" id="startBtn">ТАПНУТЬ, ЧТОБЫ ВКЛЮЧИТЬ</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="synth.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
