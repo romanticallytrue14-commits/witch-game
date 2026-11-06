@@ -2,7 +2,7 @@
 "use strict";
 
 const CACHE_PREFIX = "witchbeat-";
-const CACHE_NAME = "witchbeat-v1.0.0";
+const CACHE_NAME = "witchbeat-v2.0.0";
 const ASSETS = [
   "./",
   "./index.html",

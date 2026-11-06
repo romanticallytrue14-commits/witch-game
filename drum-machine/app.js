@@ -4,7 +4,6 @@
   const Engine = window.DrumMachineEngine;
   const $ = (selector, root = document) => root.querySelector(selector);
   const STORAGE_KEY = "witchbeat-pattern-v1";
-  const STEPS_PER_PAGE = 8;
   const STORAGE = (() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -15,8 +14,9 @@
   })();
 
   let state = STORAGE.state;
-  let page = 0;
   let currentStep = -1;
+  let tb303PressTimer = null;
+  let tb303LongPressStep = null;
   let playing = false;
   let starting = false;
   let audioEngine = null;
@@ -33,6 +33,7 @@
   const playLabel = $("#playLabel");
   const playState = $("#playState");
   const stepReadout = $("#stepReadout");
+  const beatRuler = $("#beatRuler");
   const stepNumbers = $("#stepNumbers");
   const trackRows = $("#trackRows");
   const patternDescription = $("#patternDescription");
@@ -101,13 +102,21 @@
     const tempo = $("#tempoRange");
     const swing = $("#swingRange");
     const volume = $("#volumeRange");
+    const cutoff = $("#tbCutoffRange");
+    const resonance = $("#tbResonanceRange");
     tempo.value = String(state.tempo);
     $("#tempoValue").textContent = String(state.tempo);
     swing.value = String(state.swing);
     $("#swingValue").textContent = state.swing + "%";
     volume.value = String(Math.round(state.volume * 100));
     $("#volumeValue").textContent = Math.round(state.volume * 100) + "%";
-    for (const input of [tempo, swing, volume]) updateRangeFill(input);
+    cutoff.value = String(state.tb303Cutoff);
+    $("#tbCutoffValue").textContent = state.tb303Cutoff >= 1000
+      ? (state.tb303Cutoff / 1000).toFixed(state.tb303Cutoff % 1000 ? 1 : 0) + " kHz"
+      : state.tb303Cutoff + " Hz";
+    resonance.value = String(state.tb303Resonance);
+    $("#tbResonanceValue").textContent = state.tb303Resonance + "%";
+    for (const input of [tempo, swing, volume, cutoff, resonance]) updateRangeFill(input);
     if (audioEngine) audioEngine.setVolume(state.volume);
   }
 
@@ -121,18 +130,19 @@
     }
   }
 
-  function renderPageButtons() {
-    for (const button of document.querySelectorAll(".page-switch [data-page]")) {
-      button.setAttribute("aria-pressed", String(Number(button.dataset.page) === page));
-    }
-  }
-
   function renderSequencer() {
-    renderPageButtons();
+    beatRuler.replaceChildren();
+    for (let beat = 0; beat < 4; beat++) {
+      const label = document.createElement("span");
+      label.className = "beat-label";
+      label.style.gridColumn = "span 4";
+      label.innerHTML = '<b></b><small>1/4</small>';
+      label.querySelector("b").textContent = String(beat + 1);
+      beatRuler.appendChild(label);
+    }
+
     stepNumbers.replaceChildren();
-    const pageStart = page * STEPS_PER_PAGE;
-    for (let offset = 0; offset < STEPS_PER_PAGE; offset++) {
-      const step = pageStart + offset;
+    for (let step = 0; step < Engine.STEP_COUNT; step++) {
       const number = document.createElement("span");
       number.className = "step-number" + (step % 4 === 0 ? " bar-start" : "");
       number.dataset.stepNumber = String(step);
@@ -145,8 +155,11 @@
     for (const track of Engine.TRACKS) {
       const row = document.createElement("div");
       row.className = "track-row";
+      row.dataset.track = track.id;
       row.style.setProperty("--track-color", track.color);
 
+      const meta = document.createElement("div");
+      meta.className = "track-meta";
       const audition = document.createElement("button");
       audition.type = "button";
       audition.className = "track-pad";
@@ -157,21 +170,33 @@
       audition.querySelector(".track-glyph").textContent = track.key;
       audition.querySelector(".track-copy strong").textContent = track.short;
       audition.querySelector(".track-copy small").textContent = track.hint;
-      row.appendChild(audition);
+      meta.appendChild(audition);
+      const metaHint = document.createElement("span");
+      metaHint.className = "track-meta-hint";
+      metaHint.textContent = track.synth ? "УДЕРЖИВАЙ ШАГ → НОТА" : "ТАП → ПРОСЛУШАТЬ";
+      meta.appendChild(metaHint);
+      row.appendChild(meta);
 
       const cells = document.createElement("div");
       cells.className = "step-cells";
-      for (let offset = 0; offset < STEPS_PER_PAGE; offset++) {
-        const step = pageStart + offset;
+      for (let step = 0; step < Engine.STEP_COUNT; step++) {
         const active = state.steps[track.id][step] === true;
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "step-toggle" + (active ? " is-active" : "") + (step === currentStep ? " is-playhead" : "");
+        button.className = "step-toggle" + (track.synth ? " tb303-step" : "") + (active ? " is-active" : "") + (step === currentStep ? " is-playhead" : "");
         button.dataset.track = track.id;
         button.dataset.step = String(step);
         button.setAttribute("aria-pressed", String(active));
-        button.setAttribute("aria-label", "Шаг " + (step + 1) + ": " + track.name + ", " + (active ? "включён" : "выключен"));
-        button.title = "Шаг " + (step + 1) + " · " + track.name;
+        let label = "Шаг " + (step + 1) + ": " + track.name + ", " + (active ? "включён" : "выключен");
+        if (track.synth) {
+          const note = Engine.TB303_NOTES[state.tb303Notes[step]];
+          if (active) button.textContent = note.short;
+          label += active ? ", нота " + note.name + ". Удерживай, чтобы сменить." : ". Удерживай, чтобы включить и выбрать ноту.";
+          button.title = "Шаг " + (step + 1) + " · TB-303 · " + (active ? note.name : "выкл.") + " · удерживай для смены ноты";
+        } else {
+          button.title = "Шаг " + (step + 1) + " · " + track.name;
+        }
+        button.setAttribute("aria-label", label);
         cells.appendChild(button);
       }
       row.appendChild(cells);
@@ -192,9 +217,7 @@
   function setPlayhead(step, token) {
     if (!playing || token !== playbackToken) return;
     currentStep = step;
-    const wantedPage = Math.floor(step / STEPS_PER_PAGE);
-    if (wantedPage !== page) renderSequencer();
-    else renderPlayhead();
+    renderPlayhead();
   }
 
   function updatePlaybackUI() {
@@ -328,13 +351,43 @@
       voice.source.stop(time + 0.13);
     }
 
-    trigger(trackId, time) {
+    playTb303(time, settings = {}) {
+      const midi = Number.isFinite(settings.midi) ? settings.midi : Engine.TB303_NOTES[0].midi;
+      const cutoffValue = Number.isFinite(settings.cutoff) ? settings.cutoff : state.tb303Cutoff;
+      const resonanceValue = Number.isFinite(settings.resonance) ? settings.resonance : state.tb303Resonance;
+      const durationValue = Number.isFinite(settings.duration) ? settings.duration : 0.18;
+      const cutoff = Engine.clamp(cutoffValue, 250, 8500);
+      const resonance = Engine.clamp(resonanceValue, 0, 100);
+      const duration = Engine.clamp(durationValue, 0.06, 0.8);
+      const accent = Boolean(settings.accent);
+      const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+      const osc = this.context.createOscillator();
+      const filter = this.context.createBiquadFilter();
+      const amp = this.context.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(frequency, time);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(Math.min(12000, cutoff * (accent ? 2.25 : 1.65)), time);
+      filter.frequency.exponentialRampToValueAtTime(Math.max(80, cutoff * 0.58), time + Math.min(0.16, duration * 0.72));
+      filter.Q.setValueAtTime(0.7 + resonance * 0.17, time);
+      amp.gain.setValueAtTime(0.0001, time);
+      amp.gain.exponentialRampToValueAtTime(accent ? 0.48 : 0.32, time + 0.005);
+      amp.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+      osc.connect(filter);
+      filter.connect(amp);
+      amp.connect(this.master);
+      osc.start(time);
+      osc.stop(time + duration + 0.02);
+    }
+
+    trigger(trackId, time, settings = {}) {
       switch (trackId) {
         case "kick": this.playKick(time); break;
         case "snare": this.playSnare(time); break;
         case "hatClosed": this.playHat(time, false); break;
         case "hatOpen": this.playHat(time, true); break;
         case "clap": this.playClap(time); break;
+        case "tb303": this.playTb303(time, settings); break;
       }
     }
   }
@@ -357,14 +410,27 @@
     while (nextStepTime < horizon) {
       const step = nextStep;
       const time = Math.max(nextStepTime, now + 0.005);
+      const sixteenth = 60 / state.tempo / 4;
+      const swing = state.swing / 100;
+      const stepDuration = sixteenth * (step % 2 === 0 ? 1 + swing : 1 - swing);
       for (const track of Engine.TRACKS) {
-        if (state.steps[track.id][step]) audioEngine.trigger(track.id, time);
+        if (!state.steps[track.id][step]) continue;
+        if (track.id === "tb303") {
+          const note = Engine.TB303_NOTES[state.tb303Notes[step]];
+          audioEngine.trigger("tb303", time, {
+            midi: note.midi,
+            duration: stepDuration * 0.82,
+            cutoff: state.tb303Cutoff,
+            resonance: state.tb303Resonance,
+            accent: step % 4 === 0
+          });
+        } else {
+          audioEngine.trigger(track.id, time);
+        }
       }
       const delay = Math.max(0, (time - context.currentTime) * 1000);
       window.setTimeout(() => setPlayhead(step, token), delay);
-      const sixteenth = 60 / state.tempo / 4;
-      const swing = state.swing / 100;
-      nextStepTime += sixteenth * (step % 2 === 0 ? 1 + swing : 1 - swing);
+      nextStepTime += stepDuration;
       nextStep = (step + 1) % Engine.STEP_COUNT;
     }
   }
@@ -379,7 +445,6 @@
       audio.setVolume(state.volume);
       playing = true;
       currentStep = -1;
-      page = 0;
       nextStep = 0;
       nextStepTime = audio.context.currentTime + 0.045;
       const token = ++playbackToken;
@@ -417,7 +482,20 @@
       await audio.unlock();
       if (audio.context.state !== "running") throw new Error("AUDIO_SUSPENDED");
       audio.setVolume(state.volume);
-      audio.trigger(trackId, audio.context.currentTime + 0.008);
+      const when = audio.context.currentTime + 0.008;
+      if (trackId === "tb303") {
+        const step = currentStep >= 0 ? currentStep : 0;
+        const note = Engine.TB303_NOTES[state.tb303Notes[step]];
+        audio.trigger("tb303", when, {
+          midi: note.midi,
+          duration: 0.22,
+          cutoff: state.tb303Cutoff,
+          resonance: state.tb303Resonance,
+          accent: true
+        });
+      } else {
+        audio.trigger(trackId, when);
+      }
       const button = trackRows.querySelector('[data-audition="' + trackId + '"]');
       if (button) {
         button.classList.add("is-auditioning");
@@ -439,7 +517,6 @@
     const previousVolume = state.volume;
     state = Engine.createPreset(id);
     state.volume = previousVolume;
-    page = playing && currentStep >= STEPS_PER_PAGE ? 1 : 0;
     updateControls();
     updatePatternDetails();
     renderSequencer();
@@ -457,30 +534,55 @@
 
   function randomizePattern() {
     state = Engine.randomizeState(state);
-    page = 0;
     updatePatternDetails();
     renderSequencer();
     queueSave();
     showToast("Новый ритм готов — нажми играть");
   }
 
-  function changePage(nextPage) {
-    page = Engine.clamp(Number(nextPage) || 0, 0, 1);
-    renderSequencer();
+  function cycleTb303Step(step) {
+    state = Engine.cycleTb303Note(state, step);
+    const note = Engine.TB303_NOTES[state.tb303Notes[step]];
+    const cell = trackRows.querySelector('[data-track="tb303"][data-step="' + step + '"]');
+    if (cell) {
+      cell.textContent = note.short;
+      cell.classList.add("is-active");
+      cell.setAttribute("aria-pressed", "true");
+      cell.setAttribute("aria-label", "Шаг " + (step + 1) + ": TB-303, нота " + note.name + ". Удерживай, чтобы сменить.");
+      cell.title = "Шаг " + (step + 1) + " · TB-303 · " + note.name + " · удерживай для смены ноты";
+    }
+    updatePatternDetails();
+    queueSave();
+    tb303LongPressStep = String(step);
+    showToast("TB-303 · " + note.name);
+  }
+
+  function clearTb303Press() {
+    if (tb303PressTimer !== null) {
+      window.clearTimeout(tb303PressTimer);
+      tb303PressTimer = null;
+    }
   }
 
   function updateSettingsFromInput() {
     const swing = $("#swingRange");
     const volume = $("#volumeRange");
+    const cutoff = $("#tbCutoffRange");
+    const resonance = $("#tbResonanceRange");
     state = {
       ...state,
       swing: Engine.clamp(Number(swing.value), 0, 60),
-      volume: Engine.clamp(Number(volume.value) / 100, 0, 1)
+      volume: Engine.clamp(Number(volume.value) / 100, 0, 1),
+      tb303Cutoff: Engine.clamp(Number(cutoff.value), 250, 8500),
+      tb303Resonance: Engine.clamp(Number(resonance.value), 0, 100)
     };
     $("#swingValue").textContent = state.swing + "%";
     $("#volumeValue").textContent = Math.round(state.volume * 100) + "%";
-    updateRangeFill(swing);
-    updateRangeFill(volume);
+    $("#tbCutoffValue").textContent = state.tb303Cutoff >= 1000
+      ? (state.tb303Cutoff / 1000).toFixed(state.tb303Cutoff % 1000 ? 1 : 0) + " kHz"
+      : state.tb303Cutoff + " Hz";
+    $("#tbResonanceValue").textContent = state.tb303Resonance + "%";
+    for (const input of [swing, volume, cutoff, resonance]) updateRangeFill(input);
     if (audioEngine) audioEngine.setVolume(state.volume);
     queueSave();
   }
@@ -519,7 +621,20 @@
     const button = event.target.closest("[data-preset]");
     if (button) choosePreset(button.dataset.preset);
   });
-  $("#trackRows").addEventListener("click", (event) => {
+  trackRows.addEventListener("pointerdown", (event) => {
+    const stepButton = event.target.closest(".tb303-step");
+    if (!stepButton) return;
+    tb303LongPressStep = null;
+    clearTb303Press();
+    const step = Number(stepButton.dataset.step);
+    tb303PressTimer = window.setTimeout(() => {
+      tb303PressTimer = null;
+      cycleTb303Step(step);
+    }, 520);
+  });
+  window.addEventListener("pointerup", clearTb303Press);
+  window.addEventListener("pointercancel", clearTb303Press);
+  trackRows.addEventListener("click", (event) => {
     const auditionButton = event.target.closest("[data-audition]");
     if (auditionButton) {
       audition(auditionButton.dataset.audition);
@@ -527,13 +642,15 @@
     }
     const stepButton = event.target.closest(".step-toggle");
     if (!stepButton) return;
+    if (tb303LongPressStep !== null) {
+      const shouldSuppress = tb303LongPressStep === stepButton.dataset.step && stepButton.dataset.track === "tb303";
+      tb303LongPressStep = null;
+      if (shouldSuppress) return;
+    }
     state = Engine.toggleStep(state, stepButton.dataset.track, Number(stepButton.dataset.step));
     updatePatternDetails();
     renderSequencer();
     queueSave();
-  });
-  document.querySelectorAll(".page-switch [data-page]").forEach((button) => {
-    button.addEventListener("click", () => changePage(button.dataset.page));
   });
   $("#tempoRange").addEventListener("input", (event) => setTempo(event.currentTarget.value));
   $("#tempoDown").addEventListener("click", () => setTempo(state.tempo - 1));
@@ -541,6 +658,8 @@
   $("#tapButton").addEventListener("click", tapTempo);
   $("#swingRange").addEventListener("input", updateSettingsFromInput);
   $("#volumeRange").addEventListener("input", updateSettingsFromInput);
+  $("#tbCutoffRange").addEventListener("input", updateSettingsFromInput);
+  $("#tbResonanceRange").addEventListener("input", updateSettingsFromInput);
   $("#clearButton").addEventListener("click", clearPattern);
   $("#randomButton").addEventListener("click", randomizePattern);
 
