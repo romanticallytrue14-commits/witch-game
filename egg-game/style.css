@@ -1,0 +1,155 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #efeadd;
+  color: #3d3d3d;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 460px;
+  margin: 0 auto;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 6px 4px;
+  background: #efeadd;
+  border-bottom: 6px solid #8c7a4d;
+}
+
+.head h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.hud {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.hud div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 13px;
+}
+
+.hud strong {
+  font-size: 18px;
+}
+
+.stage {
+  position: relative;
+  border: 8px solid #5a4a2f;
+  border-radius: 14px;
+  width: 90vw;
+  max-width: 400px;
+  aspect-ratio: 400 / 640;
+  margin: 8px auto 0;
+  background: #efeadd;
+  overflow: hidden;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(239, 234, 221, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.panel {
+  text-align: center;
+  padding: 0 20px;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 22px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.panel p {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 6px 4px;
+  background: #efeadd;
+  border-top: 4px solid #5a4a2f;
+}
+
+.controls button {
+  flex: 1;
+  margin: 0 5px;
+  height: 46px;
+  font-size: 22px;
+  border: 2px solid #5a4a2f;
+  background: #d9c99f;
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.controls button:active {
+  background: #c9b98f;
+}
+
+.overlay button,
+.foot button {
+  padding: 10px 28px;
+  font-size: 17px;
+  border: 2px solid #5a4a2f;
+  background: #d9c99f;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.overlay button:active,
+.foot button:active {
+  background: #c9b98f;
+}
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 6px;
+  background: #efeadd;
+  border-top: 4px solid #5a4a2f;
+  font-size: 14px;
+}
+
+.foot a {
+  color: #5a4a2f;
+  text-decoration: none;
+}
+
+.foot a:hover { text-decoration: underline; }

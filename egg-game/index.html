@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#8c7a4d">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Волк ловит яйца — классическая игра в стиле Game &amp; Watch. Лови падающие яйца корзиной, не пропусти ни одного!">
+  <title>Волк ловит яйца</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+  <link rel="apple-touch-icon" href="icon-512.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="head">
+      <h1>🐺 Волк ловит яйца</h1>
+      <div class="hud">
+        <div><span>Поймано</span><strong id="score">0</strong></div>
+        <div><span>Пропущено</span><strong id="misses">0</strong>/3</div>
+        <div><span>Рекорд</span><strong id="highscore">0</strong></div>
+      </div>
+    </header>
+
+    <div class="stage">
+      <canvas id="scene" width="400" height="640" role="img"
+        aria-label="Волк ловит падающие яйца корзиной"></canvas>
+      <div id="overlay" class="overlay">
+        <div class="panel">
+          <h2 id="overlay-title">Волк ловит яйца</h2>
+          <p id="overlay-hint">Лови яйца корзиной — не пропусти ни одного!<br>Пропустил 3 яйца — конец игры.</p>
+          <button id="btn-start">Старт</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="btn-left">◀</button>
+      <button id="btn-right">▶</button>
+    </div>
+
+    <footer class="foot">
+      <button id="sound">🔊 Звук: включён</button>
+      <a class="ghost" href="../">← К сборнику игр</a>
+    </footer>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
