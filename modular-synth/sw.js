@@ -1,6 +1,6 @@
 /* Witchwave — service worker: офлайн-режим.
  * Кэшируем app-shell при установке, отдаём из кэша, обновляем в фоне. */
-const CACHE = 'witchwave-v2'; // v2: аудио-раутинг патч-кабелей
+const CACHE = 'witchwave-v3'; // v3: перетаскивание проводов с обоих концов, зоны тапа
 const ASSETS = [
   './',
   './index.html',

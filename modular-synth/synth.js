@@ -450,14 +450,14 @@ function updateTemp(){
   if(!tempEl)tempEl=mkPath('cable temp');
   tempEl.style.stroke=drag.color;
   tempEl.style.color=drag.color;
-  tempEl.setAttribute('d',pathD(jackPos('[data-out]',drag.from),drag.p));
+  tempEl.setAttribute('d',pathD(jackPos('[data-out]',drag.out),drag.p));
 }
 function clearTemp(){
   if(tempEl){tempEl.remove();tempEl=null;}
 }
-function nearestIn(cx,cy){
-  let best=null,bd=28*28;
-  for(const el of $$('.jack-in')){
+function nearestJackOf(sel,cx,cy,rad){
+  let best=null,bd=rad*rad;
+  for(const el of $$(sel)){
     const r=el.getBoundingClientRect();
     const dx=cx-(r.left+r.width/2),dy=cy-(r.top+r.height/2);
     const d=dx*dx+dy*dy;
@@ -465,62 +465,74 @@ function nearestIn(cx,cy){
   }
   return best;
 }
-function nearestJack(cx,cy,rad){
-  const rr=rad*rad;
-  for(const el of $$('.jack')){
-    const b=el.getBoundingClientRect();
-    const dx=cx-(b.left+b.width/2),dy=cy-(b.top+b.height/2);
-    if(dx*dx+dy*dy<=rr)return el;
-  }
-  return null;
+const nearestIn=(cx,cy)=>nearestJackOf('.jack-in',cx,cy,30);
+const nearestOut=(cx,cy)=>nearestJackOf('.jack-out',cx,cy,30);
+const nearestJack=(cx,cy,rad)=>nearestJackOf('.jack',cx,cy,rad);
+const elOfOut=id=>document.querySelector('[data-out="'+id+'"]');
+
+function setDragSrc(el){
+  $$('.jack.drag-src').forEach(j=>j.classList.remove('drag-src'));
+  if(el)el.classList.add('drag-src');
 }
-function wrapPos(e){
-  const wr=rackWrap.getBoundingClientRect();
-  return{x:e.clientX-wr.left,y:e.clientY-wr.top};
+function clearDragHl(){
+  setDragSrc(null);
+  $$('.jack.hilite').forEach(j=>j.classList.remove('hilite'));
 }
-function startDrag(from,e,color){
-  drag={from:from,color:color||PALETTE[from.split('.')[0]]||'#fff',
-         p:wrapPos(e),sx:e.clientX,sy:e.clientY,pendingC:null};
+// новый провод от вывода
+function startNewDrag(outId,srcEl,e){
+  drag={mode:'new',out:outId,in:null,color:PALETTE[outId.split('.')[0]]||'#fff',
+        p:wrapPos(e),sx:e.clientX,sy:e.clientY,removed:false};
+  setDragSrc(srcEl);
   updateTemp();
 }
-function grabCable(hitEl,e){
-  const c=cables.find(x=>x.in===hitEl.dataset.in);
-  if(!c)return;
-  drag={from:c.out,color:c.color,p:wrapPos(e),sx:e.clientX,sy:e.clientY,pendingC:c};
+// перетяжка существующего провода (от входа, от провода или от занятого вывода)
+function startMoveDrag(c,srcEl,e){
+  drag={mode:'move',out:c.out,in:c.in,color:c.color,
+        p:wrapPos(e),sx:e.clientX,sy:e.clientY,removed:false};
+  setDragSrc(srcEl);
   updateTemp();
 }
 rackWrap.addEventListener('pointerdown',e=>{
   if(e.target.closest('.knob'))return;
-  const outEl=e.target.closest('.jack-out');
-  if(outEl){
-    e.preventDefault();
-    startDrag(outEl.dataset.out,e);
-    return;
-  }
-  const hitEl=e.target.closest('.cable-hit');
-  if(hitEl){
-    const under=nearestJack(e.clientX,e.clientY,17);
-    if(under){
-      if(under.classList.contains('jack-out')){
-        e.preventDefault();
-        startDrag(under.dataset.out,e);
-      }
+  let jackEl=e.target.closest('.jack');
+  if(!jackEl){
+    const hitEl=e.target.closest('.cable-hit');
+    if(!hitEl)return;
+    jackEl=nearestJack(e.clientX,e.clientY,24);
+    if(jackEl){
+      // палец на проводе, но над сокетом — действуем как на сокете
+    }else{
+      const c=cables.find(x=>x.in===hitEl.dataset.in);
+      if(c){e.preventDefault();startMoveDrag(c,elOfOut(c.out),e);}
       return;
     }
+  }
+  if(jackEl.classList.contains('jack-out')){
     e.preventDefault();
-    grabCable(hitEl,e);
+    startNewDrag(jackEl.dataset.out,jackEl,e);
+  }else{
+    const c=cables.find(x=>x.in===jackEl.dataset.in);
+    if(c){e.preventDefault();startMoveDrag(c,jackEl,e);}
   }
 });
 window.addEventListener('pointermove',e=>{
   if(drag){
-    if(drag.pendingC){
+    if(!drag.removed){
       const dx=e.clientX-drag.sx,dy=e.clientY-drag.sy;
-      if(dx*dx+dy*dy>100){removeCable(drag.pendingC);drag.pendingC=null;}
+      if(dx*dx+dy*dy>100){
+        drag.removed=true;
+        if(drag.mode==='move'){
+          const c=cables.find(x=>x.in===drag.in&&x.out===drag.out);
+          if(c)removeCable(c);
+        }
+      }
     }
     drag.p=wrapPos(e);
     updateTemp();
-    const hi=nearestIn(e.clientX,e.clientY);
-    $$('.jack-in').forEach(j=>j.classList.toggle('hilite',j===hi));
+    const hiIn=nearestIn(e.clientX,e.clientY);
+    const hiOut=hiIn?null:nearestOut(e.clientX,e.clientY);
+    $$('.jack-in').forEach(j=>j.classList.toggle('hilite',j===hiIn));
+    $$('.jack-out').forEach(j=>j.classList.toggle('hilite',j===hiOut));
     return;
   }
   // keyboard glide
@@ -538,10 +550,20 @@ window.addEventListener('pointermove',e=>{
 });
 function endDrag(e){
   if(!drag)return;
-  $$('.jack-in').forEach(j=>j.classList.remove('hilite'));
-  const hi=nearestIn(e.clientX,e.clientY);
-  if(drag.pendingC){removeCable(drag.pendingC);drag.pendingC=null;}
-  if(hi)connect(drag.from,hi.dataset.in,drag.color);
+  clearDragHl();
+  const hiIn=nearestIn(e.clientX,e.clientY);
+  const hiOut=hiIn?null:nearestOut(e.clientX,e.clientY);
+  let connected=false;
+  if(drag.mode==='new'){
+    if(hiIn){connect(drag.out,hiIn.dataset.in,drag.color);connected=true;}
+    // отпустили в воздухе — провода нет
+  }else if(drag.removed){
+    if(hiIn){connect(drag.out,hiIn.dataset.in,drag.color);connected=true;}
+    else if(hiOut){connect(hiOut.dataset.out,drag.in,drag.color);connected=true;}
+    // воздух — провод снят
+  }
+  // короткий тап по проводу — ничего не происходит
+  if(connected&&navigator.vibrate)navigator.vibrate(12);
   drag=null;
   clearTemp();
 }
