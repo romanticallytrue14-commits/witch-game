@@ -6,7 +6,7 @@ const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 
-const APP_VERSION='4.0';
+const APP_VERSION='4.1';
 const NAME={vco1:'VCO1',vco2:'VCO2',lfo:'LFO',env:'ENV',noise:'NOISE',filter:'VCF',vca:'VCA',mix:'MIX',master:'MASTER'};
 const PALETTE={
   vco1:'#ff5db1', vco2:'#59e3ff', lfo:'#ffd166', env:'#7cffb2',
@@ -409,7 +409,7 @@ function mkPath(cls){
   return p;
 }
 function jackPos(attr,val){
-  const el=document.querySelector(attr+'="'+val+'"');
+  const el=document.querySelector('['+attr+'="'+val+'"]');
   if(!el)return{x:0,y:0};
   const wr=rackWrap.getBoundingClientRect(),r=el.getBoundingClientRect();
   return{x:r.left+r.width/2-wr.left,y:r.top+r.height/2-wr.top};
@@ -420,7 +420,7 @@ function pathD(a,b){
   return'M '+a.x+' '+a.y+' C '+a.x+' '+(a.y+sag)+', '+b.x+' '+(b.y+sag)+', '+b.x+' '+b.y;
 }
 function updateCable(c){
-  const d=pathD(jackPos('[data-out]',c.out),jackPos('[data-in]',c.in));
+  const d=pathD(jackPos('data-out',c.out),jackPos('data-in',c.in));
   c.el.setAttribute('d',d);
   c.hit.setAttribute('d',d);
 }
@@ -499,7 +499,7 @@ function updateTemp(){
   if(!tempEl)tempEl=mkPath('cable temp');
   tempEl.style.stroke=drag.color;
   tempEl.style.color=drag.color;
-  tempEl.setAttribute('d',pathD(jackPos('[data-out]',drag.out),drag.p));
+  tempEl.setAttribute('d',pathD(jackPos('data-out',drag.out),drag.p));
 }
 function clearTemp(){
   if(tempEl){tempEl.remove();tempEl=null;}
