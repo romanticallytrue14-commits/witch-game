@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#100e16">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Witchbeat — карманная драм-машина. Создавай биты на телефоне, меняй темп и свинг, работай офлайн.">
+  <meta name="description" content="Witchbeat — драм-машина на телефоне: 16 шагов в линию, четвертные доли 4/4 и синтезатор TB-303.">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -48,11 +48,11 @@
         <div class="hero-copy">
           <p class="eyebrow"><i></i> ПОРТАТИВНАЯ РИТМ-СЕКЦИЯ</p>
           <h1 id="page-title">Бит начинается<br><em>с одного касания.</em></h1>
-          <p class="hero-lead">Собирай ударные, крути свинг и запускай свой грув — прямо в браузере.</p>
+          <p class="hero-lead">Собирай ударные, добавляй кислотную бас-линию и запускай свой грув — прямо в браузере.</p>
         </div>
         <div class="hero-stats" aria-label="Возможности">
           <span><b>16</b> шагов</span>
-          <span><b>05</b> звуков</span>
+          <span><b>06</b> дорожек</span>
           <span class="offline"><i></i> офлайн</span>
         </div>
       </section>
@@ -106,21 +106,22 @@
                 <p class="eyebrow">ШАГОВЫЙ СЕКВЕНСОР</p>
                 <h2 id="sequencer-title">Собери свою партию</h2>
               </div>
-              <div class="page-switch" role="group" aria-label="Какие шаги редактировать">
-                <button type="button" data-page="0" aria-pressed="true">01—08</button>
-                <button type="button" data-page="1" aria-pressed="false">09—16</button>
+              <div class="time-signature" aria-label="Размер четыре четверти, шестнадцать шагов">
+                <strong>4/4</strong><span>16 ШАГОВ</span>
               </div>
             </div>
             <div class="sequence-grid-wrap">
-              <div class="step-header" aria-hidden="true">
-                <span class="track-head-label">ДОРОЖКА</span>
-                <div id="stepNumbers" class="step-numbers"></div>
+              <div class="ruler-caption" aria-hidden="true">
+                <span><b>♩</b> ЧЕТВЕРТНЫЕ ДОЛИ</span>
+                <span>1 ДОЛЯ = 4 ШАГА</span>
               </div>
+              <div id="beatRuler" class="beat-ruler" aria-hidden="true"></div>
+              <div id="stepNumbers" class="step-numbers" aria-hidden="true"></div>
               <div id="trackRows" class="track-rows"></div>
             </div>
             <div class="sequence-footer">
               <span class="active-legend"><i></i> УДАР ВКЛЮЧЁН</span>
-              <span>ТАП ПО НАЗВАНИЮ — ПРОСЛУШАТЬ</span>
+              <span>УДЕРЖИВАЙ ШАГ TB-303 — СМЕНИ НОТУ</span>
             </div>
           </section>
         </div>
@@ -150,14 +151,30 @@
               <input id="volumeRange" class="range" type="range" min="0" max="100" step="1" value="76" aria-label="Общая громкость">
               <div class="range-captions"><span>ТИШЕ</span><span>ГРОМЧЕ</span></div>
             </div>
-            <div class="sound-note"><span class="sound-note-dot"></span><span>Все звуки создаются в браузере.<br>Никаких загрузок и лишнего шума.</span></div>
+            <div class="setting-control tb-cutoff-control">
+              <div class="setting-title">
+                <label for="tbCutoffRange"><span class="setting-symbol cutoff-symbol">⌁</span> TB-303 FILTER</label>
+                <output id="tbCutoffValue" for="tbCutoffRange">2.5 kHz</output>
+              </div>
+              <input id="tbCutoffRange" class="range" type="range" min="250" max="8500" step="50" value="2500" aria-label="Частота фильтра TB-303">
+              <div class="range-captions"><span>ТЕМНЕЕ</span><span>ЯРЧЕ</span></div>
+            </div>
+            <div class="setting-control tb-resonance-control">
+              <div class="setting-title">
+                <label for="tbResonanceRange"><span class="setting-symbol resonance-symbol">◉</span> Резонанс</label>
+                <output id="tbResonanceValue" for="tbResonanceRange">68%</output>
+              </div>
+              <input id="tbResonanceRange" class="range" type="range" min="0" max="100" step="1" value="68" aria-label="Резонанс фильтра TB-303">
+              <div class="range-captions"><span>МЯГКО</span><span>КИСЛО</span></div>
+            </div>
+            <div class="sound-note"><span class="sound-note-dot"></span><span>Удерживай шаг TB-303 для смены ноты. Звуки создаются в браузере.</span></div>
           </section>
 
           <section class="tip-panel" aria-labelledby="tip-title">
             <div class="tip-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
             <p class="eyebrow">МАЛЕНЬКИЙ СЕКРЕТ</p>
             <h2 id="tip-title">Сдвинь долю.<br><em>Поймай кач.</em></h2>
-            <p>Добавь свинг, чтобы хэты слегка запаздывали. Попробуй наушники — низкая бочка зазвучит объёмнее.</p>
+            <p>Квартальные метки делят рисунок 4/4, а удержание шага TB-303 меняет ноту басовой линии.</p>
           </section>
         </aside>
       </div>

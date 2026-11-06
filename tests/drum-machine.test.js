@@ -9,12 +9,15 @@ const root = path.resolve(__dirname, "..", "drum-machine");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 test("each built-in groove has a complete 16-step row for every drum voice", () => {
-  assert.equal(Engine.TRACKS.length, 5);
+  assert.equal(Engine.TRACKS.length, 6);
   assert.equal(Object.keys(Engine.PATTERNS).length, 4);
   for (const id of Object.keys(Engine.PATTERNS)) {
     const state = Engine.createPreset(id);
     assert.equal(state.preset, id);
     assert.ok(state.tempo >= 60 && state.tempo <= 180);
+    assert.equal(state.tb303Notes.length, 16);
+    assert.ok(state.tb303Cutoff >= 250 && state.tb303Cutoff <= 8500);
+    assert.ok(state.tb303Resonance >= 0 && state.tb303Resonance <= 100);
     for (const track of Engine.TRACKS) {
       assert.equal(state.steps[track.id].length, 16);
       assert.ok(state.steps[track.id].every((step) => typeof step === "boolean"));
@@ -64,6 +67,30 @@ test("toggling a step returns an independent custom pattern", () => {
   assert.equal(Engine.toggleStep(changed, "kick", 16), changed);
 });
 
+test("TB-303 long-press cycles a note and activates its step", () => {
+  const original = Engine.createPreset("midnight");
+  const inactiveStep = 1;
+  const changed = Engine.cycleTb303Note(original, inactiveStep);
+  assert.equal(original.steps.tb303[inactiveStep], false);
+  assert.equal(changed.steps.tb303[inactiveStep], true);
+  assert.equal(changed.tb303Notes[inactiveStep], (original.tb303Notes[inactiveStep] + 1) % Engine.TB303_NOTES.length);
+  assert.equal(changed.preset, "custom");
+  assert.equal(Engine.cycleTb303Note(changed, 16), changed);
+});
+
+test("legacy five-drum saves migrate without losing their groove", () => {
+  const legacy = Engine.createPreset("broken");
+  delete legacy.steps.tb303;
+  delete legacy.tb303Notes;
+  delete legacy.tb303Cutoff;
+  delete legacy.tb303Resonance;
+  const clean = Engine.sanitizeState(legacy);
+  assert.deepEqual(clean.steps.kick, legacy.steps.kick);
+  assert.ok(clean.steps.tb303.some(Boolean));
+  assert.equal(clean.tb303Notes.length, 16);
+  assert.ok(clean.tb303Cutoff > 0);
+});
+
 test("randomizer is deterministic with an injected source and preserves mix settings", () => {
   const original = Engine.createPreset("broken");
   original.volume = 0.42;
@@ -99,6 +126,11 @@ test("PWA metadata, install icons, app assets and offline cache are complete", (
   assert.match(html, /rel="manifest" href="manifest\.webmanifest"/);
   assert.match(html, /rel="apple-touch-icon" href="apple-touch-icon\.png"/);
   assert.match(html, /id="playButton"/);
+  assert.match(html, /id="beatRuler"/);
+  assert.match(html, /1 ДОЛЯ = 4 ШАГА/);
+  assert.match(html, /tbCutoffRange/);
+  assert.match(html, /tbResonanceRange/);
+  assert.doesNotMatch(html, /page-switch|data-page/);
   assert.match(html, /id="trackRows"/);
   assert.match(html, /id="installDialog"/);
   assert.match(html, /<script src="engine\.js"><\/script>/);
