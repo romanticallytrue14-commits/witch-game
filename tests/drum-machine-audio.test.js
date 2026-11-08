@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { JSDOM } = require("jsdom");
+const Engine = require("../drum-machine/engine.js");
 
 const root = path.resolve(__dirname, "..", "drum-machine");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8")
@@ -22,7 +23,7 @@ function makeParam() {
   };
 }
 
-function build({ pointerEvents = true } = {}) {
+function build({ pointerEvents = true, audioSession = null, storage = {} } = {}) {
   const contexts = [];
   class FakeAudioContext {
     constructor() {
@@ -75,6 +76,8 @@ function build({ pointerEvents = true } = {}) {
     beforeParse(window) {
       window.AudioContext = FakeAudioContext;
       window.PointerEvent = pointerEvents ? window.MouseEvent : undefined;
+      if (audioSession) Object.defineProperty(window.navigator, "audioSession", { value: audioSession, configurable: true });
+      for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value);
     }
   });
   const { window } = page;
@@ -85,10 +88,12 @@ function build({ pointerEvents = true } = {}) {
 
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
 
-test("mobile pointer gesture resumes Web Audio and primes the output before playback", async () => {
-  const app = build();
+test("mobile pointer gesture selects iOS playback audio and primes output before playback", async () => {
+  const audioSession = { type: "ambient" };
+  const app = build({ audioSession });
   try {
     app.dispatch("pointerdown");
+    assert.equal(audioSession.type, "playback");
     assert.equal(app.contexts.length, 1);
     const context = app.contexts[0];
     assert.equal(context.resumeCalls, 1);
@@ -132,6 +137,37 @@ test("a closed audio context is recreated on the next user gesture", async () =>
     app.dispatch("pointerdown");
     assert.equal(app.contexts.length, 2);
     assert.equal(app.contexts[1].resumeCalls, 1);
+  } finally {
+    app.page.window.close();
+  }
+});
+
+test("an empty saved pattern explains why playback would be silent", async () => {
+  const empty = Engine.createPreset("midnight");
+  empty.preset = "custom";
+  empty.steps = Engine.blankSteps();
+  const app = build({ storage: { "witchbeat-pattern-v1": JSON.stringify(empty) } });
+  try {
+    app.dispatch("click");
+    await flushMicrotasks();
+    assert.equal(app.contexts.length, 0);
+    assert.equal(app.window.document.getElementById("playState").textContent, "ГОТОВ");
+    assert.match(app.window.document.getElementById("toast").textContent, /Сетка пустая/);
+  } finally {
+    app.page.window.close();
+  }
+});
+
+test("zero app volume explains silence before playback starts", async () => {
+  const muted = Engine.createPreset("midnight");
+  muted.volume = 0;
+  const app = build({ storage: { "witchbeat-pattern-v1": JSON.stringify(muted) } });
+  try {
+    app.dispatch("click");
+    await flushMicrotasks();
+    assert.equal(app.contexts.length, 0);
+    assert.equal(app.window.document.getElementById("playState").textContent, "ГОТОВ");
+    assert.match(app.window.document.getElementById("toast").textContent, /Громкость приложения на нуле/);
   } finally {
     app.page.window.close();
   }
