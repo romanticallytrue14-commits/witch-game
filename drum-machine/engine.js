@@ -45,6 +45,12 @@
     strings: Object.freeze([0, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0]),
     bell: Object.freeze([4, 0, 0, 2, 0, 3, 0, 4, 0, 0, 3, 0, 2, 0, 4, 0])
   });
+  const LEGACY_STRINGS_STEPS = Object.freeze({
+    midnight: Object.freeze([0, 8]),
+    broken: Object.freeze([1, 9]),
+    halfTime: Object.freeze([0, 8]),
+    pulse: Object.freeze([0, 8])
+  });
 
   const TRACKS = Object.freeze([
     Object.freeze({ id: "kick", name: "Бас-бочка", short: "КИК", hint: "Низкий удар", key: "K", color: "#ff718b" }),
@@ -55,13 +61,13 @@
     Object.freeze({ id: "tb303", name: "TB-303", short: "TB-303", hint: "Кислотный бас", key: "303", color: "#ff9d54", synth: true }),
     Object.freeze({ id: "piano", name: "Пианино", short: "ПИАНО", hint: "Перкуссионные клавиши", key: "P", color: "#85b7ff", synth: true }),
     Object.freeze({ id: "organ", name: "Орган", short: "ОРГАН", hint: "Тёплый аккордовый звук", key: "O", color: "#e59bff", synth: true }),
-    Object.freeze({ id: "strings", name: "Струнные", short: "СТРУНЫ", hint: "Мягкий смычковый слой", key: "S", color: "#7be0bd", synth: true }),
+    Object.freeze({ id: "strings", name: "Струнные", short: "СТРУНЫ", hint: "Мелодия по нотам", key: "S", color: "#7be0bd", synth: true }),
     Object.freeze({ id: "bell", name: "Колокольчик", short: "БЕЛЛ", hint: "Звонкие ноты", key: "B", color: "#ffd36e", synth: true })
   ]);
 
   const PATTERNS = Object.freeze({
     midnight: Object.freeze({
-      name: "Полночь", style: "HOUSE", description: "Ровный пульс, мягкий хэт и кислотная бас-линия.", tempo: 120, swing: 6,
+      name: "Полночь", style: "HOUSE", description: "Ровный пульс, мягкий хэт, струнная мелодия и кислотная бас-линия.", tempo: 120, swing: 6,
       steps: Object.freeze({
         kick: Object.freeze([0, 4, 8, 12]),
         snare: Object.freeze([4, 12]),
@@ -71,13 +77,14 @@
         tb303: Object.freeze([0, 3, 6, 8, 11, 14]),
         piano: Object.freeze([0, 8]),
         organ: Object.freeze([4, 12]),
-        strings: Object.freeze([0, 8]),
+        strings: Object.freeze([0, 4, 8, 12]),
         bell: Object.freeze([6, 14])
       }),
-      tbNotes: Object.freeze([0, 2, 4, 5, 4, 2, 1, 3, 0, 4, 5, 2, 0, 3, 1, 4])
+      tbNotes: Object.freeze([0, 2, 4, 5, 4, 2, 1, 3, 0, 4, 5, 2, 0, 3, 1, 4]),
+      stringsNotes: Object.freeze([0, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0])
     }),
     broken: Object.freeze({
-      name: "Ломаный", style: "BREAK", description: "Смещённая бочка и пружинящий TB-303 с лёгким свингом.", tempo: 108, swing: 14,
+      name: "Ломаный", style: "BREAK", description: "Смещённая бочка, лёгкий свинг и нисходящий струнный ход.", tempo: 108, swing: 14,
       steps: Object.freeze({
         kick: Object.freeze([0, 3, 7, 10, 13]),
         snare: Object.freeze([4, 12]),
@@ -87,13 +94,14 @@
         tb303: Object.freeze([0, 2, 5, 7, 9, 12, 15]),
         piano: Object.freeze([0, 7, 12]),
         organ: Object.freeze([4, 12]),
-        strings: Object.freeze([1, 9]),
+        strings: Object.freeze([1, 5, 9, 13]),
         bell: Object.freeze([3, 11, 15])
       }),
-      tbNotes: Object.freeze([0, 4, 5, 2, 3, 4, 1, 5, 0, 2, 4, 5, 3, 1, 6, 5])
+      tbNotes: Object.freeze([0, 4, 5, 2, 3, 4, 1, 5, 0, 2, 4, 5, 3, 1, 6, 5]),
+      stringsNotes: Object.freeze([0, 4, 0, 0, 0, 2, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0])
     }),
     halfTime: Object.freeze({
-      name: "Туман", style: "HALF-TIME", description: "Редкие удары, глубокая бочка и просторный басовый рифф.", tempo: 88, swing: 4,
+      name: "Туман", style: "HALF-TIME", description: "Редкие удары, глубокая бочка и просторная струнная мелодия.", tempo: 88, swing: 4,
       steps: Object.freeze({
         kick: Object.freeze([0, 6, 10]),
         snare: Object.freeze([8]),
@@ -103,13 +111,14 @@
         tb303: Object.freeze([0, 5, 8, 11, 14]),
         piano: Object.freeze([0, 8]),
         organ: Object.freeze([8]),
-        strings: Object.freeze([0, 8]),
+        strings: Object.freeze([0, 8, 12]),
         bell: Object.freeze([6, 14])
       }),
-      tbNotes: Object.freeze([0, 0, 2, 0, 3, 5, 0, 2, 4, 0, 1, 5, 0, 3, 4, 0])
+      tbNotes: Object.freeze([0, 0, 2, 0, 3, 5, 0, 2, 4, 0, 1, 5, 0, 3, 4, 0]),
+      stringsNotes: Object.freeze([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0])
     }),
     pulse: Object.freeze({
-      name: "Пульс", style: "TECHNO", description: "Плотный прямой рисунок и цепкий кислотный бас.", tempo: 132, swing: 0,
+      name: "Пульс", style: "TECHNO", description: "Плотный прямой рисунок, кислотный бас и упругая струнная тема.", tempo: 132, swing: 0,
       steps: Object.freeze({
         kick: Object.freeze([0, 4, 8, 12]),
         snare: Object.freeze([4, 12]),
@@ -119,15 +128,21 @@
         tb303: Object.freeze([0, 2, 4, 7, 8, 10, 12, 14]),
         piano: Object.freeze([0, 4, 8, 12]),
         organ: Object.freeze([4, 12]),
-        strings: Object.freeze([0, 8]),
+        strings: Object.freeze([0, 4, 8, 12]),
         bell: Object.freeze([2, 6, 10, 14])
       }),
-      tbNotes: Object.freeze([0, 2, 4, 3, 0, 5, 2, 4, 0, 3, 5, 2, 0, 4, 6, 3])
+      tbNotes: Object.freeze([0, 2, 4, 3, 0, 5, 2, 4, 0, 3, 5, 2, 0, 4, 6, 3]),
+      stringsNotes: Object.freeze([0, 0, 0, 0, 5, 0, 0, 0, 4, 0, 0, 0, 6, 0, 0, 0])
     })
   });
 
   const TRACK_IDS = TRACKS.map((track) => track.id);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+  function rowMatchesActiveSteps(row, activeSteps) {
+    return Array.isArray(row) && row.length === STEP_COUNT &&
+      row.every((active, step) => active === activeSteps.includes(step));
+  }
 
   function blankSteps() {
     return Object.fromEntries(TRACK_IDS.map((id) => [id, Array(STEP_COUNT).fill(false)]));
@@ -153,7 +168,9 @@
     };
     for (const trackId of NOTE_TRACK_IDS) {
       const field = NOTE_FIELDS[trackId];
-      const source = trackId === "tb303" ? preset.tbNotes : DEFAULT_NOTES[trackId];
+      const source = Array.isArray(preset[field])
+        ? preset[field]
+        : trackId === "tb303" ? preset.tbNotes : DEFAULT_NOTES[trackId];
       state[field] = Array.from({ length: STEP_COUNT }, (_, step) => source[step] ?? 0);
     }
     return state;
@@ -180,7 +197,11 @@
     const steps = blankSteps();
     for (const track of TRACK_IDS) {
       const row = input.steps && input.steps[track];
-      if (Array.isArray(row)) {
+      if (track === "strings" && requestedPreset !== "custom" &&
+          rowMatchesActiveSteps(row, LEGACY_STRINGS_STEPS[requestedPreset])) {
+        // Upgrade untouched built-in string rows to the new preset melody.
+        steps[track] = fallback.steps[track].slice();
+      } else if (Array.isArray(row)) {
         for (let step = 0; step < STEP_COUNT; step++) steps[track][step] = row[step] === true;
       } else if (requestedPreset !== "custom") {
         // Add newly introduced lanes to older saved built-in grooves.
@@ -192,9 +213,13 @@
     for (const trackId of NOTE_TRACK_IDS) {
       const field = NOTE_FIELDS[trackId];
       const scale = NOTE_SCALES[trackId];
-      const saved = Array.isArray(input[field]) ? input[field] : fallback[field];
+      const saved = Array.isArray(input[field]) ? input[field] : null;
+      const legacyStringsNotes = trackId === "strings" && requestedPreset !== "custom" &&
+        saved && saved.length === STEP_COUNT &&
+        saved.every((note, step) => note === DEFAULT_NOTES.strings[step]);
+      const source = saved && !legacyStringsNotes ? saved : fallback[field];
       notes[field] = Array.from({ length: STEP_COUNT }, (_, step) => {
-        const candidate = saved[step];
+        const candidate = source[step];
         return Number.isInteger(candidate) ? clamp(candidate, 0, scale.length - 1) : fallback[field][step];
       });
     }
