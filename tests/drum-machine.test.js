@@ -138,6 +138,7 @@ test("PWA metadata, install icons, app assets and offline cache are complete", (
 
   const sw = read("sw.js");
   assert.match(sw, /const CACHE_PREFIX = "witchbeat-"/);
+  assert.match(sw, /const CACHE_NAME = "witchbeat-v2\.1\.0"/);
   for (const asset of ["index.html", "style.css", "engine.js", "app.js", "manifest.webmanifest", "apple-touch-icon.png"]) {
     assert.match(sw, new RegExp("\\./" + asset.replaceAll(".", "\\.")));
     assert.ok(fs.existsSync(path.join(root, asset)));
