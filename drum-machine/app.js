@@ -248,7 +248,36 @@
     }
 
     async unlock() {
-      if (this.context.state !== "running") await this.context.resume();
+      const context = this.context;
+      if (context.state === "closed") throw new Error("AUDIO_CLOSED");
+      if (context.state !== "running") {
+        let resumePromise;
+        try {
+          // Invoke resume synchronously during the user's tap; mobile browsers
+          // may reject it if it is deferred to a later task.
+          resumePromise = context.resume();
+        } catch (error) {
+          this.primeOutput();
+          throw error;
+        }
+        this.primeOutput();
+        await resumePromise;
+      }
+      if (context.state !== "running") throw new Error("AUDIO_SUSPENDED");
+    }
+
+    primeOutput() {
+      try {
+        const context = this.context;
+        const duration = 0.04;
+        const buffer = context.createBuffer(1, Math.max(1, Math.round(context.sampleRate * duration)), context.sampleRate);
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        source.start(context.currentTime);
+      } catch (_) {
+        // The silent warm-up is a legacy WebKit fallback; resume remains primary.
+      }
     }
 
     setVolume(value) {
@@ -393,11 +422,20 @@
   }
 
   function getAudioEngine() {
-    if (audioEngine) return audioEngine;
+    if (audioEngine && audioEngine.context.state !== "closed") return audioEngine;
+    audioEngine = null;
     const Context = window.AudioContext || window.webkitAudioContext;
     if (!Context) throw new Error("NO_WEB_AUDIO");
     audioEngine = new DrumAudio(Context);
     return audioEngine;
+  }
+
+  function primeAudioFromGesture() {
+    try {
+      getAudioEngine().unlock().catch(() => {});
+    } catch (_) {
+      // Playback gives the user a visible error if this browser lacks audio.
+    }
   }
 
   function schedule(token) {
@@ -457,7 +495,9 @@
       updatePlaybackUI();
       const message = error && error.message === "NO_WEB_AUDIO"
         ? "В этом браузере не поддерживается Web Audio."
-        : "Не удалось включить звук — проверь настройки браузера.";
+        : error && error.message === "AUDIO_SUSPENDED"
+          ? "Браузер не включил звук. Нажми «Играть» ещё раз и проверь громкость устройства."
+          : "Не удалось включить звук — проверь настройки браузера и громкость устройства.";
       showToast(message);
     } finally {
       starting = false;
@@ -502,7 +542,7 @@
         window.setTimeout(() => button.classList.remove("is-auditioning"), 140);
       }
     } catch (_) {
-      showToast("Коснись ещё раз, чтобы разрешить звук в браузере.");
+      showToast("Браузер заблокировал звук. Коснись «Играть» ещё раз и проверь громкость устройства.");
     }
   }
 
@@ -616,6 +656,13 @@
   updatePlaybackUI();
   updateSaveStatus("", STORAGE.restored ? "СОХРАНЕНО" : "ГОТОВО");
 
+  const audioGestureEvent = window.PointerEvent ? "pointerdown" : "touchstart";
+  playButton.addEventListener(audioGestureEvent, primeAudioFromGesture, { passive: true });
+  trackRows.addEventListener(audioGestureEvent, (event) => {
+    if (event.target && typeof event.target.closest === "function" && event.target.closest("[data-audition]")) {
+      primeAudioFromGesture();
+    }
+  }, { passive: true });
   playButton.addEventListener("click", () => playing ? stopPlayback() : startPlayback());
   $("#presetList").addEventListener("click", (event) => {
     const button = event.target.closest("[data-preset]");
