@@ -31,6 +31,16 @@ test("each built-in groove has a complete 16-step row for every instrument", () 
   }
 });
 
+test("every built-in groove gives the string lane a multi-note melody", () => {
+  for (const presetId of Object.keys(Engine.PATTERNS)) {
+    const state = Engine.createPreset(presetId);
+    const steps = state.steps.strings.flatMap((active, step) => active ? [step] : []);
+    const notes = steps.map((step) => state.stringsNotes[step]);
+    assert.ok(steps.length >= 3, `${presetId} should contain several string notes`);
+    assert.ok(new Set(notes).size >= 2, `${presetId} should use different string pitches`);
+  }
+});
+
 test("sanitization clamps settings, strips unknown tracks, and never mutates input", () => {
   const raw = {
     preset: "missing",
@@ -126,6 +136,30 @@ test("v2.2 six-track saves keep their groove and receive four new instrument lan
   }
 });
 
+test("untouched saved presets migrate their old string rows to the new melodies", () => {
+  const legacySteps = { midnight: [0, 8], broken: [1, 9], halfTime: [0, 8], pulse: [0, 8] };
+  const oldNotes = [0, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0, 3, 0, 0, 0];
+  for (const presetId of Object.keys(Engine.PATTERNS)) {
+    const legacy = Engine.createPreset(presetId);
+    legacy.steps.strings = Array(16).fill(false);
+    for (const step of legacySteps[presetId]) legacy.steps.strings[step] = true;
+    legacy.stringsNotes = oldNotes.slice();
+    const migrated = Engine.sanitizeState(legacy);
+    const fresh = Engine.createPreset(presetId);
+    assert.deepEqual(migrated.steps.strings, fresh.steps.strings);
+    assert.deepEqual(migrated.stringsNotes, fresh.stringsNotes);
+  }
+
+  const custom = Engine.createPreset("midnight");
+  custom.preset = "custom";
+  custom.steps.strings = Array(16).fill(false);
+  custom.steps.strings[2] = true;
+  custom.stringsNotes = oldNotes.slice();
+  const preserved = Engine.sanitizeState(custom);
+  assert.equal(preserved.steps.strings[2], true);
+  assert.deepEqual(preserved.stringsNotes, oldNotes);
+});
+
 test("randomizer is deterministic with an injected source and preserves mix settings", () => {
   const original = Engine.createPreset("broken");
   original.volume = 0.42;
@@ -198,7 +232,7 @@ test("PWA metadata, install icons, app assets and offline cache are complete", (
 
   const sw = read("sw.js");
   assert.match(sw, /const CACHE_PREFIX = "witchbeat-"/);
-  assert.match(sw, /const CACHE_NAME = "witchbeat-v3\.0\.0"/);
+  assert.match(sw, /const CACHE_NAME = "witchbeat-v3\.1\.0"/);
   for (const asset of ["index.html", "style.css", "engine.js", "wav.js", "app.js", "manifest.webmanifest", "apple-touch-icon.png"]) {
     assert.match(sw, new RegExp("\\./" + asset.replaceAll(".", "\\.")));
     assert.ok(fs.existsSync(path.join(root, asset)));
