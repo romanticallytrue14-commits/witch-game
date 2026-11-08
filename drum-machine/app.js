@@ -15,8 +15,11 @@
 
   let state = STORAGE.state;
   let currentStep = -1;
-  let tb303PressTimer = null;
-  let tb303LongPressStep = null;
+  let notePressTimer = null;
+  let longPressNoteCell = null;
+  let preparedWavUrl = null;
+  let preparedWavSignature = null;
+  let renderingWav = false;
   let playing = false;
   let starting = false;
   let audioEngine = null;
@@ -28,6 +31,10 @@
   let toastTimer = null;
   let installPrompt = null;
   const tapTimes = [];
+  const WAV_REPEAT_COUNT = 4;
+  const WAV_START_OFFSET = 0.05;
+  const WAV_TAIL_SECONDS = 1.1;
+  const NOTE_DURATION_STEPS = Object.freeze({ tb303: 0.82, piano: 2.4, organ: 1.5, strings: 2.8, bell: 2.1 });
 
   const playButton = $("#playButton");
   const playLabel = $("#playLabel");
@@ -39,6 +46,8 @@
   const patternDescription = $("#patternDescription");
   const saveStatus = $("#saveStatus");
   const toast = $("#toast");
+  const exportLink = $("#exportLink");
+  const exportLabel = $("#exportLabel");
 
   function loadPresetButtons() {
     const list = $("#presetList");
@@ -77,7 +86,20 @@
     }
   }
 
+  function invalidatePreparedWav() {
+    if (!preparedWavUrl) return;
+    if (window.URL && typeof window.URL.revokeObjectURL === "function") window.URL.revokeObjectURL(preparedWavUrl);
+    preparedWavUrl = null;
+    preparedWavSignature = null;
+    exportLink.href = "#export-wav";
+    exportLink.removeAttribute("download");
+    exportLink.classList.remove("is-ready");
+    exportLink.setAttribute("aria-label", "Подготовить текущий трек к скачиванию в WAV");
+    exportLabel.textContent = "WAV";
+  }
+
   function queueSave() {
+    invalidatePreparedWav();
     updateSaveStatus("saving", "СОХРАНЯЮ");
     if (saveTimer !== null) window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(saveNow, 240);
@@ -154,7 +176,7 @@
     trackRows.replaceChildren();
     for (const track of Engine.TRACKS) {
       const row = document.createElement("div");
-      row.className = "track-row";
+      row.className = "track-row" + (track.synth ? " note-track" : "");
       row.dataset.track = track.id;
       row.style.setProperty("--track-color", track.color);
 
@@ -183,16 +205,17 @@
         const active = state.steps[track.id][step] === true;
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "step-toggle" + (track.synth ? " tb303-step" : "") + (active ? " is-active" : "") + (step === currentStep ? " is-playhead" : "");
+        button.className = "step-toggle" + (track.synth ? " note-step" : "") + (track.id === "tb303" ? " tb303-step" : "") + (active ? " is-active" : "") + (step === currentStep ? " is-playhead" : "");
         button.dataset.track = track.id;
         button.dataset.step = String(step);
         button.setAttribute("aria-pressed", String(active));
         let label = "Шаг " + (step + 1) + ": " + track.name + ", " + (active ? "включён" : "выключен");
         if (track.synth) {
-          const note = Engine.TB303_NOTES[state.tb303Notes[step]];
+          const field = Engine.NOTE_FIELDS[track.id];
+          const note = Engine.NOTE_SCALES[track.id][state[field][step]];
           if (active) button.textContent = note.short;
           label += active ? ", нота " + note.name + ". Удерживай, чтобы сменить." : ". Удерживай, чтобы включить и выбрать ноту.";
-          button.title = "Шаг " + (step + 1) + " · TB-303 · " + (active ? note.name : "выкл.") + " · удерживай для смены ноты";
+          button.title = "Шаг " + (step + 1) + " · " + track.name + " · " + (active ? note.name : "выкл.") + " · удерживай для смены ноты";
         } else {
           button.title = "Шаг " + (step + 1) + " · " + track.name;
         }
@@ -229,8 +252,10 @@
   }
 
   class DrumAudio {
-    constructor(AudioContextClass) {
-      this.context = new AudioContextClass();
+    constructor(AudioContextClassOrInstance) {
+      this.context = typeof AudioContextClassOrInstance === "function"
+        ? new AudioContextClassOrInstance()
+        : AudioContextClassOrInstance;
       this.master = this.context.createGain();
       this.limiter = this.context.createDynamicsCompressor();
       this.limiter.threshold.value = -10;
@@ -409,6 +434,80 @@
       osc.stop(time + duration + 0.02);
     }
 
+    playPartials(time, settings, partials, defaultDuration, attack) {
+      const midi = Number.isFinite(settings.midi) ? settings.midi : Engine.NOTE_SCALES.piano[0].midi;
+      const durationValue = Number.isFinite(settings.duration) ? settings.duration : defaultDuration;
+      const duration = Engine.clamp(durationValue, 0.08, 1.5);
+      const fundamental = 440 * Math.pow(2, (midi - 69) / 12);
+      for (const partial of partials) {
+        const osc = this.context.createOscillator();
+        const amp = this.context.createGain();
+        osc.type = partial.type || "sine";
+        osc.frequency.setValueAtTime(fundamental * partial.ratio, time);
+        amp.gain.setValueAtTime(0.0001, time);
+        amp.gain.exponentialRampToValueAtTime(partial.level, time + Math.min(attack, duration * 0.35));
+        amp.gain.exponentialRampToValueAtTime(0.0001, time + duration * partial.decay);
+        osc.connect(amp);
+        amp.connect(this.master);
+        osc.start(time);
+        osc.stop(time + duration + 0.025);
+      }
+    }
+
+    playPiano(time, settings = {}) {
+      this.playPartials(time, settings, [
+        { ratio: 1, level: 0.2, decay: 1 },
+        { ratio: 2.01, level: 0.075, decay: 0.58 },
+        { ratio: 3.96, level: 0.032, decay: 0.34 }
+      ], 0.46, 0.004);
+    }
+
+    playOrgan(time, settings = {}) {
+      this.playPartials(time, settings, [
+        { ratio: 1, level: 0.14, decay: 1 },
+        { ratio: 2, level: 0.06, decay: 1 },
+        { ratio: 3, level: 0.025, decay: 1 }
+      ], 0.34, 0.016);
+    }
+
+    playStrings(time, settings = {}) {
+      const midi = Number.isFinite(settings.midi) ? settings.midi : Engine.NOTE_SCALES.strings[0].midi;
+      const durationValue = Number.isFinite(settings.duration) ? settings.duration : 0.58;
+      const duration = Engine.clamp(durationValue, 0.12, 1.5);
+      const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+      const oscA = this.context.createOscillator();
+      const oscB = this.context.createOscillator();
+      const filter = this.context.createBiquadFilter();
+      const amp = this.context.createGain();
+      oscA.type = "sawtooth";
+      oscB.type = "sawtooth";
+      oscA.frequency.setValueAtTime(frequency, time);
+      oscB.frequency.setValueAtTime(frequency * 1.004, time);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(2800, time);
+      filter.Q.setValueAtTime(0.7, time);
+      amp.gain.setValueAtTime(0.0001, time);
+      amp.gain.exponentialRampToValueAtTime(0.115, time + Math.min(0.055, duration * 0.25));
+      amp.gain.setValueAtTime(0.09, time + duration * 0.72);
+      amp.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+      oscA.connect(filter);
+      oscB.connect(filter);
+      filter.connect(amp);
+      amp.connect(this.master);
+      oscA.start(time);
+      oscB.start(time);
+      oscA.stop(time + duration + 0.03);
+      oscB.stop(time + duration + 0.03);
+    }
+
+    playBell(time, settings = {}) {
+      this.playPartials(time, settings, [
+        { ratio: 1, level: 0.15, decay: 1 },
+        { ratio: 2.76, level: 0.06, decay: 0.52 },
+        { ratio: 4.08, level: 0.022, decay: 0.28 }
+      ], 0.72, 0.002);
+    }
+
     trigger(trackId, time, settings = {}) {
       switch (trackId) {
         case "kick": this.playKick(time); break;
@@ -417,6 +516,10 @@
         case "hatOpen": this.playHat(time, true); break;
         case "clap": this.playClap(time); break;
         case "tb303": this.playTb303(time, settings); break;
+        case "piano": this.playPiano(time, settings); break;
+        case "organ": this.playOrgan(time, settings); break;
+        case "strings": this.playStrings(time, settings); break;
+        case "bell": this.playBell(time, settings); break;
       }
     }
   }
@@ -448,6 +551,34 @@
     }
   }
 
+  function getStepDuration(pattern, step) {
+    const sixteenth = 60 / pattern.tempo / 4;
+    const swing = pattern.swing / 100;
+    return sixteenth * (step % 2 === 0 ? 1 + swing : 1 - swing);
+  }
+
+  function triggerStep(audio, pattern, step, time, stepDuration) {
+    for (const track of Engine.TRACKS) {
+      if (!pattern.steps[track.id][step]) continue;
+      if (!track.synth) {
+        audio.trigger(track.id, time);
+        continue;
+      }
+      const field = Engine.NOTE_FIELDS[track.id];
+      const note = Engine.NOTE_SCALES[track.id][pattern[field][step]];
+      const settings = {
+        midi: note.midi,
+        duration: stepDuration * (NOTE_DURATION_STEPS[track.id] || 1),
+        accent: step % 4 === 0
+      };
+      if (track.id === "tb303") {
+        settings.cutoff = pattern.tb303Cutoff;
+        settings.resonance = pattern.tb303Resonance;
+      }
+      audio.trigger(track.id, time, settings);
+    }
+  }
+
   function schedule(token) {
     if (!playing || token !== playbackToken || !audioEngine) return;
     const context = audioEngine.context;
@@ -458,28 +589,89 @@
     while (nextStepTime < horizon) {
       const step = nextStep;
       const time = Math.max(nextStepTime, now + 0.005);
-      const sixteenth = 60 / state.tempo / 4;
-      const swing = state.swing / 100;
-      const stepDuration = sixteenth * (step % 2 === 0 ? 1 + swing : 1 - swing);
-      for (const track of Engine.TRACKS) {
-        if (!state.steps[track.id][step]) continue;
-        if (track.id === "tb303") {
-          const note = Engine.TB303_NOTES[state.tb303Notes[step]];
-          audioEngine.trigger("tb303", time, {
-            midi: note.midi,
-            duration: stepDuration * 0.82,
-            cutoff: state.tb303Cutoff,
-            resonance: state.tb303Resonance,
-            accent: step % 4 === 0
-          });
-        } else {
-          audioEngine.trigger(track.id, time);
-        }
-      }
+      const stepDuration = getStepDuration(state, step);
+      triggerStep(audioEngine, state, step, time, stepDuration);
       const delay = Math.max(0, (time - context.currentTime) * 1000);
       window.setTimeout(() => setPlayhead(step, token), delay);
       nextStepTime += stepDuration;
       nextStep = (step + 1) % Engine.STEP_COUNT;
+    }
+  }
+
+  async function renderWavBlob(pattern) {
+    const OfflineContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OfflineContext || !window.WitchbeatWav) throw new Error("NO_WAV_EXPORT");
+    const sampleRate = audioEngine && audioEngine.context.sampleRate ? audioEngine.context.sampleRate : 44100;
+    const barDuration = 240 / pattern.tempo;
+    const frameCount = Math.ceil((WAV_START_OFFSET + barDuration * WAV_REPEAT_COUNT + WAV_TAIL_SECONDS) * sampleRate);
+    const context = new OfflineContext(2, frameCount, sampleRate);
+    const renderer = new DrumAudio(context);
+    renderer.master.gain.value = pattern.volume;
+
+    let time = WAV_START_OFFSET;
+    for (let bar = 0; bar < WAV_REPEAT_COUNT; bar++) {
+      for (let step = 0; step < Engine.STEP_COUNT; step++) {
+        const stepDuration = getStepDuration(pattern, step);
+        triggerStep(renderer, pattern, step, time, stepDuration);
+        time += stepDuration;
+      }
+    }
+
+    const audioBuffer = await context.startRendering();
+    return new Blob([window.WitchbeatWav.encodeWav(audioBuffer)], { type: "audio/wav" });
+  }
+
+  function exportWavFilename(pattern) {
+    const groove = pattern.preset && pattern.preset !== "custom" ? pattern.preset : "custom";
+    return "witchbeat-" + groove + "-4bars.wav";
+  }
+
+  async function prepareWavDownload(event) {
+    const signature = JSON.stringify(state);
+    if (preparedWavUrl && preparedWavSignature === signature) return;
+    event.preventDefault();
+    if (renderingWav) return;
+    if (!Engine.TRACKS.some((track) => state.steps[track.id].some(Boolean))) {
+      showToast("Сетка пустая — сначала добавь шаги.");
+      return;
+    }
+    if (state.volume <= 0) {
+      showToast("Громкость приложения на нуле — WAV будет беззвучным.");
+      return;
+    }
+    if (!window.OfflineAudioContext && !window.webkitOfflineAudioContext) {
+      showToast("Этот браузер не поддерживает экспорт WAV.");
+      return;
+    }
+
+    renderingWav = true;
+    exportLink.setAttribute("aria-busy", "true");
+    exportLabel.textContent = "РЕНДЕР…";
+    showToast("Собираю четыре такта в WAV…");
+    try {
+      const snapshot = Engine.sanitizeState(state);
+      const blob = await renderWavBlob(snapshot);
+      if (JSON.stringify(state) !== signature) {
+        showToast("Паттерн изменился во время рендера — сохрани WAV ещё раз.");
+        return;
+      }
+      invalidatePreparedWav();
+      preparedWavUrl = window.URL.createObjectURL(blob);
+      preparedWavSignature = signature;
+      exportLink.href = preparedWavUrl;
+      exportLink.download = exportWavFilename(snapshot);
+      exportLink.classList.add("is-ready");
+      exportLink.setAttribute("aria-label", "Скачать текущий трек в WAV");
+      exportLabel.textContent = "СКАЧАТЬ WAV";
+      showToast("WAV готов — нажми «Скачать WAV» ещё раз.");
+    } catch (error) {
+      showToast(error && error.message === "NO_WAV_EXPORT"
+        ? "Не удалось подготовить WAV в этом браузере."
+        : "Не получилось собрать WAV — попробуй ещё раз.");
+    } finally {
+      renderingWav = false;
+      exportLink.removeAttribute("aria-busy");
+      if (!preparedWavUrl) exportLabel.textContent = "WAV";
     }
   }
 
@@ -547,16 +739,21 @@
       if (audio.context.state !== "running") throw new Error("AUDIO_SUSPENDED");
       audio.setVolume(state.volume);
       const when = audio.context.currentTime + 0.008;
-      if (trackId === "tb303") {
+      const track = Engine.TRACKS.find((candidate) => candidate.id === trackId);
+      if (track && track.synth) {
         const step = currentStep >= 0 ? currentStep : 0;
-        const note = Engine.TB303_NOTES[state.tb303Notes[step]];
-        audio.trigger("tb303", when, {
+        const field = Engine.NOTE_FIELDS[trackId];
+        const note = Engine.NOTE_SCALES[trackId][state[field][step]];
+        const settings = {
           midi: note.midi,
-          duration: 0.22,
-          cutoff: state.tb303Cutoff,
-          resonance: state.tb303Resonance,
+          duration: Math.max(0.22, 0.12 * (NOTE_DURATION_STEPS[trackId] || 1)),
           accent: true
-        });
+        };
+        if (trackId === "tb303") {
+          settings.cutoff = state.tb303Cutoff;
+          settings.resonance = state.tb303Resonance;
+        }
+        audio.trigger(trackId, when, settings);
       } else {
         audio.trigger(trackId, when);
       }
@@ -604,27 +801,30 @@
     showToast("Новый ритм готов — нажми играть");
   }
 
-  function cycleTb303Step(step) {
-    state = Engine.cycleTb303Note(state, step);
-    const note = Engine.TB303_NOTES[state.tb303Notes[step]];
-    const cell = trackRows.querySelector('[data-track="tb303"][data-step="' + step + '"]');
+  function cycleInstrumentStep(trackId, step) {
+    const track = Engine.TRACKS.find((candidate) => candidate.id === trackId);
+    if (!track || !track.synth) return;
+    state = Engine.cycleInstrumentNote(state, trackId, step);
+    const field = Engine.NOTE_FIELDS[trackId];
+    const note = Engine.NOTE_SCALES[trackId][state[field][step]];
+    const cell = trackRows.querySelector('[data-track="' + trackId + '"][data-step="' + step + '"]');
     if (cell) {
       cell.textContent = note.short;
       cell.classList.add("is-active");
       cell.setAttribute("aria-pressed", "true");
-      cell.setAttribute("aria-label", "Шаг " + (step + 1) + ": TB-303, нота " + note.name + ". Удерживай, чтобы сменить.");
-      cell.title = "Шаг " + (step + 1) + " · TB-303 · " + note.name + " · удерживай для смены ноты";
+      cell.setAttribute("aria-label", "Шаг " + (step + 1) + ": " + track.name + ", нота " + note.name + ". Удерживай, чтобы сменить.");
+      cell.title = "Шаг " + (step + 1) + " · " + track.name + " · " + note.name + " · удерживай для смены ноты";
     }
     updatePatternDetails();
     queueSave();
-    tb303LongPressStep = String(step);
-    showToast("TB-303 · " + note.name);
+    longPressNoteCell = trackId + ":" + step;
+    showToast(track.short + " · " + note.name);
   }
 
-  function clearTb303Press() {
-    if (tb303PressTimer !== null) {
-      window.clearTimeout(tb303PressTimer);
-      tb303PressTimer = null;
+  function clearNotePress() {
+    if (notePressTimer !== null) {
+      window.clearTimeout(notePressTimer);
+      notePressTimer = null;
     }
   }
 
@@ -693,18 +893,19 @@
     if (button) choosePreset(button.dataset.preset);
   });
   trackRows.addEventListener("pointerdown", (event) => {
-    const stepButton = event.target.closest(".tb303-step");
+    const stepButton = event.target.closest(".note-step");
     if (!stepButton) return;
-    tb303LongPressStep = null;
-    clearTb303Press();
+    longPressNoteCell = null;
+    clearNotePress();
     const step = Number(stepButton.dataset.step);
-    tb303PressTimer = window.setTimeout(() => {
-      tb303PressTimer = null;
-      cycleTb303Step(step);
+    const trackId = stepButton.dataset.track;
+    notePressTimer = window.setTimeout(() => {
+      notePressTimer = null;
+      cycleInstrumentStep(trackId, step);
     }, 520);
   });
-  window.addEventListener("pointerup", clearTb303Press);
-  window.addEventListener("pointercancel", clearTb303Press);
+  window.addEventListener("pointerup", clearNotePress);
+  window.addEventListener("pointercancel", clearNotePress);
   trackRows.addEventListener("click", (event) => {
     const auditionButton = event.target.closest("[data-audition]");
     if (auditionButton) {
@@ -713,9 +914,9 @@
     }
     const stepButton = event.target.closest(".step-toggle");
     if (!stepButton) return;
-    if (tb303LongPressStep !== null) {
-      const shouldSuppress = tb303LongPressStep === stepButton.dataset.step && stepButton.dataset.track === "tb303";
-      tb303LongPressStep = null;
+    if (longPressNoteCell !== null) {
+      const shouldSuppress = longPressNoteCell === stepButton.dataset.track + ":" + stepButton.dataset.step;
+      longPressNoteCell = null;
       if (shouldSuppress) return;
     }
     state = Engine.toggleStep(state, stepButton.dataset.track, Number(stepButton.dataset.step));
@@ -733,6 +934,7 @@
   $("#tbResonanceRange").addEventListener("input", updateSettingsFromInput);
   $("#clearButton").addEventListener("click", clearPattern);
   $("#randomButton").addEventListener("click", randomizePattern);
+  exportLink.addEventListener("click", prepareWavDownload);
 
   $("#installButton").addEventListener("click", async () => {
     if (!installPrompt) {

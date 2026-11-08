@@ -4,18 +4,23 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const Engine = require("../drum-machine/engine.js");
+const Wav = require("../drum-machine/wav.js");
 
 const root = path.resolve(__dirname, "..", "drum-machine");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
-test("each built-in groove has a complete 16-step row for every drum voice", () => {
-  assert.equal(Engine.TRACKS.length, 6);
+test("each built-in groove has a complete 16-step row for every instrument", () => {
+  assert.equal(Engine.TRACKS.length, 10);
   assert.equal(Object.keys(Engine.PATTERNS).length, 4);
   for (const id of Object.keys(Engine.PATTERNS)) {
     const state = Engine.createPreset(id);
     assert.equal(state.preset, id);
     assert.ok(state.tempo >= 60 && state.tempo <= 180);
     assert.equal(state.tb303Notes.length, 16);
+    for (const [trackId, field] of Object.entries(Engine.NOTE_FIELDS)) {
+      assert.equal(state[field].length, 16, `${trackId} notes should have 16 values`);
+      assert.ok(state[field].every((note) => note >= 0 && note < Engine.NOTE_SCALES[trackId].length));
+    }
     assert.ok(state.tb303Cutoff >= 250 && state.tb303Cutoff <= 8500);
     assert.ok(state.tb303Resonance >= 0 && state.tb303Resonance <= 100);
     for (const track of Engine.TRACKS) {
@@ -78,17 +83,47 @@ test("TB-303 long-press cycles a note and activates its step", () => {
   assert.equal(Engine.cycleTb303Note(changed, 16), changed);
 });
 
-test("legacy five-drum saves migrate without losing their groove", () => {
+test("piano, organ, strings and bell steps cycle notes in their own ranges", () => {
+  const original = Engine.createPreset("midnight");
+  for (const trackId of ["piano", "organ", "strings", "bell"]) {
+    const field = Engine.NOTE_FIELDS[trackId];
+    const changed = Engine.cycleInstrumentNote(original, trackId, 1);
+    assert.equal(changed.steps[trackId][1], true);
+    assert.equal(changed[field][1], (original[field][1] + 1) % Engine.NOTE_SCALES[trackId].length);
+    assert.equal(original.steps[trackId][1], false);
+  }
+});
+
+test("legacy five-drum saves migrate without losing grooves or adding new lanes silently", () => {
   const legacy = Engine.createPreset("broken");
-  delete legacy.steps.tb303;
-  delete legacy.tb303Notes;
+  for (const trackId of ["tb303", "piano", "organ", "strings", "bell"]) delete legacy.steps[trackId];
+  for (const field of Object.values(Engine.NOTE_FIELDS)) delete legacy[field];
   delete legacy.tb303Cutoff;
   delete legacy.tb303Resonance;
   const clean = Engine.sanitizeState(legacy);
   assert.deepEqual(clean.steps.kick, legacy.steps.kick);
-  assert.ok(clean.steps.tb303.some(Boolean));
+  for (const trackId of ["tb303", "piano", "organ", "strings", "bell"]) {
+    assert.ok(clean.steps[trackId].some(Boolean), `${trackId} default lane should migrate`);
+  }
   assert.equal(clean.tb303Notes.length, 16);
   assert.ok(clean.tb303Cutoff > 0);
+});
+
+test("v2.2 six-track saves keep their groove and receive four new instrument lanes", () => {
+  const legacy = Engine.createPreset("pulse");
+  for (const trackId of ["piano", "organ", "strings", "bell"]) {
+    delete legacy.steps[trackId];
+    delete legacy[Engine.NOTE_FIELDS[trackId]];
+  }
+  const clean = Engine.sanitizeState(legacy);
+  for (const trackId of ["kick", "snare", "hatClosed", "hatOpen", "clap", "tb303"]) {
+    assert.deepEqual(clean.steps[trackId], legacy.steps[trackId]);
+  }
+  assert.deepEqual(clean.tb303Notes, legacy.tb303Notes);
+  for (const trackId of ["piano", "organ", "strings", "bell"]) {
+    assert.ok(clean.steps[trackId].some(Boolean), `${trackId} lane should be added from its preset`);
+    assert.equal(clean[Engine.NOTE_FIELDS[trackId]].length, 16);
+  }
 });
 
 test("randomizer is deterministic with an injected source and preserves mix settings", () => {
@@ -102,6 +137,28 @@ test("randomizer is deterministic with an injected source and preserves mix sett
   const full = Engine.randomizeState(original, () => 0);
   assert.ok(Engine.TRACKS.every((track) => full.steps[track.id].every((step) => step === true)));
   assert.equal(original.preset, "broken");
+});
+
+test("WAV encoder writes little-endian stereo PCM16 samples", () => {
+  const audioBuffer = {
+    numberOfChannels: 2,
+    length: 2,
+    sampleRate: 48000,
+    getChannelData(channel) {
+      return channel === 0 ? Float32Array.from([1, -1]) : Float32Array.from([0.5, -0.5]);
+    }
+  };
+  const encoded = Wav.encodeWav(audioBuffer);
+  const bytes = Buffer.from(encoded);
+  const view = new DataView(encoded);
+  assert.equal(bytes.toString("ascii", 0, 4), "RIFF");
+  assert.equal(bytes.toString("ascii", 8, 12), "WAVE");
+  assert.equal(bytes.toString("ascii", 36, 40), "data");
+  assert.equal(view.getUint32(24, true), 48000);
+  assert.equal(view.getUint16(22, true), 2);
+  assert.equal(view.getUint16(34, true), 16);
+  assert.equal(view.getUint32(40, true), 8);
+  assert.deepEqual([view.getInt16(44, true), view.getInt16(46, true), view.getInt16(48, true), view.getInt16(50, true)], [32767, 16383, -32768, -16384]);
 });
 
 test("PWA metadata, install icons, app assets and offline cache are complete", () => {
@@ -130,16 +187,19 @@ test("PWA metadata, install icons, app assets and offline cache are complete", (
   assert.match(html, /1 ДОЛЯ = 4 ШАГА/);
   assert.match(html, /tbCutoffRange/);
   assert.match(html, /tbResonanceRange/);
+  assert.match(html, /id="exportLink"/);
+  assert.match(html, /<b>10<\/b> дорожек/);
   assert.doesNotMatch(html, /page-switch|data-page/);
   assert.match(html, /id="trackRows"/);
   assert.match(html, /id="installDialog"/);
   assert.match(html, /<script src="engine\.js"><\/script>/);
+  assert.match(html, /<script src="wav\.js"><\/script>/);
   assert.match(html, /<script src="app\.js"><\/script>/);
 
   const sw = read("sw.js");
   assert.match(sw, /const CACHE_PREFIX = "witchbeat-"/);
-  assert.match(sw, /const CACHE_NAME = "witchbeat-v2\.2\.0"/);
-  for (const asset of ["index.html", "style.css", "engine.js", "app.js", "manifest.webmanifest", "apple-touch-icon.png"]) {
+  assert.match(sw, /const CACHE_NAME = "witchbeat-v3\.0\.0"/);
+  for (const asset of ["index.html", "style.css", "engine.js", "wav.js", "app.js", "manifest.webmanifest", "apple-touch-icon.png"]) {
     assert.match(sw, new RegExp("\\./" + asset.replaceAll(".", "\\.")));
     assert.ok(fs.existsSync(path.join(root, asset)));
   }
@@ -148,6 +208,7 @@ test("PWA metadata, install icons, app assets and offline cache are complete", (
 
 test("browser scripts parse and the app has no remote runtime dependency", () => {
   assert.doesNotThrow(() => new Function(read("engine.js")));
+  assert.doesNotThrow(() => new Function(read("wav.js")));
   assert.doesNotThrow(() => new Function(read("app.js")));
   const html = read("index.html");
   assert.doesNotMatch(html, /<script[^>]+src=["']https?:/i);

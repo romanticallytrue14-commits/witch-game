@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#100e16">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Witchbeat — драм-машина на телефоне: 16 шагов в линию, четвертные доли 4/4 и синтезатор TB-303.">
+  <meta name="description" content="Witchbeat — музыкальный секвенсор для телефона: 10 инструментальных дорожек, 16 шагов, TB-303 и экспорт трека в WAV.">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -48,11 +48,11 @@
         <div class="hero-copy">
           <p class="eyebrow"><i></i> ПОРТАТИВНАЯ РИТМ-СЕКЦИЯ</p>
           <h1 id="page-title">Бит начинается<br><em>с одного касания.</em></h1>
-          <p class="hero-lead">Собирай ударные, добавляй кислотную бас-линию и запускай свой грув — прямо в браузере.</p>
+          <p class="hero-lead">Смешивай ударные, TB-303, пианино и другие инструменты, а готовый грув сохраняй в WAV.</p>
         </div>
         <div class="hero-stats" aria-label="Возможности">
           <span><b>16</b> шагов</span>
-          <span><b>06</b> дорожек</span>
+          <span><b>10</b> дорожек</span>
           <span class="offline"><i></i> офлайн</span>
         </div>
       </section>
@@ -94,6 +94,9 @@
                   <span aria-hidden="true">✳</span> СЛУЧАЙНЫЙ
                 </button>
                 <button id="clearButton" class="text-action clear-action" type="button" aria-label="Очистить все шаги">ОЧИСТИТЬ</button>
+                <a id="exportLink" class="text-action export-action" href="#export-wav" aria-label="Подготовить текущий трек к скачиванию в WAV">
+                  <span aria-hidden="true">↓</span><span id="exportLabel">WAV</span>
+                </a>
               </div>
             </div>
             <div id="presetList" class="preset-list" role="group" aria-label="Готовые ритмы"></div>
@@ -121,7 +124,7 @@
             </div>
             <div class="sequence-footer">
               <span class="active-legend"><i></i> УДАР ВКЛЮЧЁН</span>
-              <span>УДЕРЖИВАЙ ШАГ TB-303 — СМЕНИ НОТУ</span>
+              <span>УДЕРЖИВАЙ ШАГ НОТОВОЙ ДОРОЖКИ — СМЕНИ НОТУ</span>
             </div>
           </section>
         </div>
@@ -167,14 +170,14 @@
               <input id="tbResonanceRange" class="range" type="range" min="0" max="100" step="1" value="68" aria-label="Резонанс фильтра TB-303">
               <div class="range-captions"><span>МЯГКО</span><span>КИСЛО</span></div>
             </div>
-            <div class="sound-note"><span class="sound-note-dot"></span><span>Нажми «Играть», чтобы включить звук: мобильные браузеры блокируют автозапуск. Если тишина, проверь громкость и беззвучный режим. Удерживай шаг TB-303 для смены ноты.</span></div>
+            <div class="sound-note"><span class="sound-note-dot"></span><span>Нажми «Играть», чтобы включить звук: мобильные браузеры блокируют автозапуск. Удерживай шаг любой нотной дорожки, чтобы сменить ноту. Трек можно скачать в WAV.</span></div>
           </section>
 
           <section class="tip-panel" aria-labelledby="tip-title">
             <div class="tip-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
             <p class="eyebrow">МАЛЕНЬКИЙ СЕКРЕТ</p>
             <h2 id="tip-title">Сдвинь долю.<br><em>Поймай кач.</em></h2>
-            <p>Квартальные метки делят рисунок 4/4, а удержание шага TB-303 меняет ноту басовой линии.</p>
+            <p>Квартальные метки делят рисунок 4/4, а удержание шага любой нотной дорожки меняет высоту звука.</p>
           </section>
         </aside>
       </div>
@@ -203,6 +206,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="engine.js"></script>
+  <script src="wav.js"></script>
   <script src="app.js"></script>
   <script>
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

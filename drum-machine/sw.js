@@ -2,12 +2,13 @@
 "use strict";
 
 const CACHE_PREFIX = "witchbeat-";
-const CACHE_NAME = "witchbeat-v2.2.0";
+const CACHE_NAME = "witchbeat-v3.0.0";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./engine.js",
+  "./wav.js",
   "./app.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
