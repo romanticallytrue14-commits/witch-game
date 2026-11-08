@@ -430,7 +430,17 @@
     return audioEngine;
   }
 
+  function usePlaybackAudioSession() {
+    try {
+      const session = navigator.audioSession;
+      if (session && "type" in session) session.type = "playback";
+    } catch (_) {
+      // AudioSession is not implemented in every browser.
+    }
+  }
+
   function primeAudioFromGesture() {
+    usePlaybackAudioSession();
     try {
       getAudioEngine().unlock().catch(() => {});
     } catch (_) {
@@ -475,8 +485,17 @@
 
   async function startPlayback() {
     if (starting || playing) return;
+    if (!Engine.TRACKS.some((track) => state.steps[track.id].some(Boolean))) {
+      showToast("Сетка пустая — выбери ритм или включи шаги.");
+      return;
+    }
+    if (state.volume <= 0) {
+      showToast("Громкость приложения на нуле — подними ползунок.");
+      return;
+    }
     starting = true;
     try {
+      usePlaybackAudioSession();
       const audio = getAudioEngine();
       await audio.unlock();
       if (audio.context.state !== "running") throw new Error("AUDIO_SUSPENDED");
@@ -517,7 +536,12 @@
   }
 
   async function audition(trackId) {
+    if (state.volume <= 0) {
+      showToast("Громкость приложения на нуле — подними ползунок.");
+      return;
+    }
     try {
+      usePlaybackAudioSession();
       const audio = getAudioEngine();
       await audio.unlock();
       if (audio.context.state !== "running") throw new Error("AUDIO_SUSPENDED");
