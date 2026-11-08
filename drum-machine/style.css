@@ -138,10 +138,14 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .panel-heading .eyebrow { margin-bottom: 6px; font-size: 8px; }
 .panel-heading h2 { margin: 0; color: #f2edf5; font-size: 18px; font-weight: 700; letter-spacing: -.45px; }
 .pattern-actions { display: flex; align-items: center; gap: 6px; }
-.text-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aaa3b0; font-size: 8px; font-weight: 850; letter-spacing: .6px; white-space: nowrap; cursor: pointer; }
+.text-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aaa3b0; font-size: 8px; font-weight: 850; letter-spacing: .6px; text-decoration: none; white-space: nowrap; cursor: pointer; }
 .text-action:hover { border-color: #3e3946; background: #25222c; color: #f0eaf3; }
 .text-action span { color: var(--lime); font-size: 13px; line-height: 1; }
 .clear-action { color: #88818e; }
+.export-action { color: #c5e29a; }
+.export-action #exportLabel { color: inherit; }
+.export-action.is-ready { border-color: rgba(210,255,103,.35); background: rgba(210,255,103,.06); color: var(--lime); }
+.export-action[aria-busy="true"] { opacity: .62; pointer-events: none; }
 .preset-list { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-top: 14px; }
 .preset-chip {
   min-width: 0; min-height: 55px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px;
@@ -184,7 +188,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .track-copy strong { overflow: hidden; color: #d4ced9; font-size: 8px; font-weight: 850; letter-spacing: .45px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
 .track-copy small { overflow: hidden; color: #69636f; font-size: 7px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
 .track-meta-hint { color: #6e6875; font-size: 7px; letter-spacing: .45px; }
-.track-row[data-track="tb303"] .track-meta-hint { color: #d8965c; }
+.track-row.note-track .track-meta-hint { color: var(--track-color); }
 .step-toggle {
   position: relative; width: 100%; min-width: 0; height: 31px; padding: 0;
   border: 1px solid #34303a; border-radius: 5px; background: #211e27;
@@ -196,10 +200,11 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .step-toggle:hover { border-color: #797180; background: #2b2732; }
 .step-toggle:active { transform: scale(.92); }
 .step-toggle.is-active { border-color: var(--track-color); background: var(--track-color); box-shadow: 0 0 13px color-mix(in srgb, var(--track-color) 18%, transparent), inset 0 1px rgba(255,255,255,.38); }
-.step-toggle:not(.tb303-step).is-active::after { content: ""; position: absolute; inset: 50% auto auto 50%; width: 5px; height: 5px; border-radius: 50%; background: rgba(18,15,20,.78); transform: translate(-50%,-50%); }
+.step-toggle:not(.note-step).is-active::after { content: ""; position: absolute; inset: 50% auto auto 50%; width: 5px; height: 5px; border-radius: 50%; background: rgba(18,15,20,.78); transform: translate(-50%,-50%); }
 .step-toggle.is-playhead { outline: 2px solid #fff3; outline-offset: 1px; z-index: 1; }
 .step-toggle.is-active.is-playhead { outline-color: var(--lime); box-shadow: 0 0 12px color-mix(in srgb, var(--track-color) 46%, transparent); }
-.step-toggle.tb303-step { overflow: hidden; letter-spacing: -.6px; }
+.step-toggle.note-step { overflow: hidden; font-size: 7px; letter-spacing: -.45px; }
+.step-toggle.tb303-step { letter-spacing: -.6px; }
 .sequence-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 2px 0; color: #716b78; font-size: 7px; font-weight: 750; letter-spacing: .65px; }
 .active-legend { display: inline-flex; align-items: center; gap: 6px; color: #99929f; }
 .active-legend i { width: 7px; height: 7px; border-radius: 2px; background: var(--lime); }
