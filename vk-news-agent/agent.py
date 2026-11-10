@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ from vk_publisher import (  # noqa: E402
     VKAPIError,
     VKPublisher,
     download_and_prepare_image,
+    encode_multipart_photo,
 )
 
 logger = logging.getLogger("vk_news_agent")
@@ -408,13 +410,15 @@ def run_diagnostics(config_path: Path, report_path: Path) -> int:
             # Проверим реальную загрузку фото в messages upload server (без wall.post!)
             sample_img = (config_path.parent / "branding" / "pinned_post.jpg").read_bytes()
             up_srv = pub.call_api("photos.getMessagesUploadServer", {"peer_id": 0}, token=vk_token)
-            up_res = pub._multipart_upload(
+            m_body, m_ct = encode_multipart_photo("photo", "test.jpg", "image/jpeg", sample_img)
+            m_req = urllib.request.Request(
                 str(up_srv["upload_url"]),
-                field_name="photo",
-                filename="test.jpg",
-                file_bytes=sample_img,
-                mime_type="image/jpeg",
+                data=m_body,
+                headers={"Content-Type": m_ct, "User-Agent": "VKNewsAgent/1.0"},
+                method="POST",
             )
+            with urllib.request.urlopen(m_req, timeout=30, context=pub.ssl_ctx) as m_resp:
+                up_res = json.loads(m_resp.read().decode("utf-8", errors="replace"))
             saved_msg = pub.call_api(
                 "photos.saveMessagesPhoto",
                 {

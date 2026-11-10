@@ -30,6 +30,8 @@ USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+SOCIAL_BOT_USER_AGENT = "Mozilla/5.0 (compatible; vkShare; +http://vk.com/dev/Share)"
+SSO_BOUNCE_MARKERS = ("auth-controller", "unity-id-sdk", "/sso/", "passport.", "id.rambler.ru")
 
 BAD_IMAGE_PATTERNS = (
     "logo",
@@ -126,8 +128,26 @@ def decode_http_bytes(raw_bytes: bytes, content_type_header: str = "") -> str:
     return raw_bytes.decode("utf-8", errors="replace")
 
 
+def _decompress_response(raw: bytes, encoding: str) -> bytes:
+    enc = (encoding or "").lower()
+    if enc == "gzip" or raw[:2] == b"\x1f\x8b":
+        try:
+            return gzip.decompress(raw)
+        except OSError:
+            return raw
+    if enc == "deflate":
+        try:
+            return zlib.decompress(raw)
+        except zlib.error:
+            try:
+                return zlib.decompress(raw, -zlib.MAX_WBITS)
+            except zlib.error:
+                return raw
+    return raw
+
+
 def fetch_url_bytes(url: str, timeout: int = 15) -> tuple[bytes, str, str]:
-    """Скачивает URL с поддержкой редиректов и gzip/deflate. Возвращает (bytes, content_type, final_url)."""
+    """Скачивает URL; если СМИ (например, Motor.ru / Rambler) редиректит на SSO-заглушку, повторяет как vkShare."""
     req = urllib.request.Request(
         url,
         headers={
@@ -139,24 +159,37 @@ def fetch_url_bytes(url: str, timeout: int = 15) -> tuple[bytes, str, str]:
     )
     ctx = ssl.create_default_context()
     with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-        raw = resp.read()
-        encoding = (resp.headers.get("Content-Encoding") or "").lower()
-        if encoding == "gzip" or raw[:2] == b"\x1f\x8b":
-            try:
-                raw = gzip.decompress(raw)
-            except OSError:
-                pass
-        elif encoding == "deflate":
-            try:
-                raw = zlib.decompress(raw)
-            except zlib.error:
-                try:
-                    raw = zlib.decompress(raw, -zlib.MAX_WBITS)
-                except zlib.error:
-                    pass
+        raw = _decompress_response(resp.read(), resp.headers.get("Content-Encoding") or "")
         content_type = resp.headers.get("Content-Type") or ""
         final_url = resp.geturl() or url
-        return raw, content_type, final_url
+
+    if any(marker in final_url.lower() for marker in SSO_BOUNCE_MARKERS):
+        for ua in (SOCIAL_BOT_USER_AGENT, "TelegramBot (like TwitterBot)", USER_AGENT):
+            try:
+                bot_req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": ua,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "ru-RU,ru;q=0.9",
+                        "Accept-Encoding": "gzip, deflate",
+                    },
+                )
+                opener = urllib.request.build_opener(
+                    urllib.request.HTTPCookieProcessor(),
+                    urllib.request.HTTPSHandler(context=ctx),
+                )
+                with opener.open(bot_req, timeout=timeout) as b_resp:
+                    b_raw = _decompress_response(b_resp.read(), b_resp.headers.get("Content-Encoding") or "")
+                    b_ct = b_resp.headers.get("Content-Type") or ""
+                    b_final = b_resp.geturl() or url
+                if len(b_raw) > 2500 and not any(m in b_final.lower() for m in SSO_BOUNCE_MARKERS):
+                    return b_raw, b_ct, b_final
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+                continue
+        final_url = url
+
+    return raw, content_type, final_url
 
 
 def is_usable_image_url(url: str) -> bool:
