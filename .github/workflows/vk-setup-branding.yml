@@ -1,9 +1,6 @@
 name: "АвтоТочка — Оформление группы ВК (в 1 клик)"
 
 on:
-  push:
-    branches:
-      - "arena/4f9e4562-witch-game"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -32,30 +29,16 @@ on:
         type: boolean
         default: true
 
-permissions:
-  contents: write
-
 jobs:
   setup-branding:
     name: "Установка оформления «АвтоТочка» в vk.ru/autoyar076"
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
 
     env:
       VK_TOKEN: ${{ secrets.VK_TOKEN || secrets.VK_ACCESS_TOKEN || secrets.VK_API_TOKEN || secrets.TOKEN }}
       VK_USER_TOKEN: ${{ secrets.VK_USER_TOKEN }}
       VK_GROUP: ${{ secrets.VK_GROUP }}
-      AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
-      GIGACHAT_AUTH_KEY: ${{ secrets.GIGACHAT_AUTH_KEY || secrets.GIGACHAT_KEY || secrets.GIGACHAT_API_KEY || secrets.GIGACHAT_CREDENTIALS }}
-      GIGACHAT_SCOPE: ${{ secrets.GIGACHAT_SCOPE }}
-      GIGACHAT_MODEL: ${{ secrets.GIGACHAT_MODEL }}
-      YANDEX_API_KEY: ${{ secrets.YANDEX_API_KEY || secrets.YANDEX_GPT_API_KEY }}
-      YANDEX_IAM_TOKEN: ${{ secrets.YANDEX_IAM_TOKEN }}
-      YANDEX_FOLDER_ID: ${{ secrets.YANDEX_FOLDER_ID }}
-      YANDEX_MODEL: ${{ secrets.YANDEX_MODEL }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
 
     steps:
       - name: Получение кода и графики оформления
@@ -85,21 +68,3 @@ jobs:
             ARGS+=(--skip-pinned)
           fi
           python3 vk-news-agent/setup_group_profile.py "${ARGS[@]}"
-
-      - name: Первая публикация свежей автоновости на стену «АвтоТочка»
-        if: github.event_name == 'push'
-        run: |
-          sleep 3
-          python3 vk-news-agent/agent.py --mode news --max-posts 1
-
-      - name: Сохранение истории первой публикации
-        if: github.event_name == 'push' && success()
-        run: |
-          if git diff --quiet vk-news-agent/state/published.json; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add vk-news-agent/state/published.json
-          git commit -m "chore(vk-news-agent): save initial published post [skip ci]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
