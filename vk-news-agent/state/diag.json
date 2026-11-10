@@ -25,17 +25,26 @@
   },
   "vk": {
     "ok": false,
-    "error": "'VKPublisher' object has no attribute '_multipart_upload'"
+    "error": "VK API error 100 в методе photos.saveMessagesPhoto: One of the parameters specified was missing or invalid: photo is undefined"
   },
   "image_probe": {
     "motor_http": {
-      "bytes": 797,
+      "bytes": 274806,
       "ct": "text/html; charset=utf-8",
-      "final_url": "https://motor.ru/api/unity-id-sdk/v1/auth-controller.html?origin=https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm"
+      "final_url": "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm"
     },
     "motor": {
-      "found_urls": [],
-      "prepared": null
+      "found_urls": [
+        "https://motor.ru/imgs/2026/11/10/14/7019833/1b6433e12869708cbb214563c58470e7f175d5a7.jpg",
+        "https://motor.ru/imgs/2026/11/10/14/7019833/a0d0a5c1e8a9ff4003a1b794bef93f4b9bc5ea3c.jpg",
+        "https://motor.ru/thumb/1280x720/smart/filters:quality(75)/imgs/2026/11/10/14/7019833/51d551ee58a3b674b526a0740e0e1699c0cd59d7.jpg"
+      ],
+      "prepared": {
+        "w": 1200,
+        "h": 628,
+        "mime": "image/jpeg",
+        "bytes": 744616
+      }
     }
   }
 }
