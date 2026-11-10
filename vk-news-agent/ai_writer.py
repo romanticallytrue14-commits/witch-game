@@ -167,6 +167,7 @@ class GigaChatClient:
             for u in [
                 os.getenv("GIGACHAT_CHAT_URL") or "",
                 str(cfg.get("chat_url", "")),
+                "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
                 "https://api.giga.chat/v1/chat/completions",
             ]
             if u
