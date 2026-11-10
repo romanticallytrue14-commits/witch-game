@@ -1,0 +1,81 @@
+{
+  "env_present": {
+    "VK_TOKEN": true,
+    "VK_USER_TOKEN": false,
+    "GIGACHAT_AUTH_KEY": true,
+    "YANDEX_API_KEY": false
+  },
+  "ai_client": "GigaChat",
+  "ai_test": {
+    "ok": false,
+    "error": "HTTP 401 при обращении к https://ngw.devices.sberbank.ru:9443/api/v2/oauth: {\"error\": {\"status_code\": 401, \"message\": \"Authorization error: header is incorrect\"}}\n"
+  },
+  "vk": {
+    "has_vk_token": true,
+    "has_vk_user_token": false,
+    "vk_token_prefix": "vk1.a.",
+    "group_id": 85500918,
+    "vk_token_is_user": false,
+    "community_token_permissions": {
+      "mask": 134488068,
+      "permissions": [
+        {
+          "name": "photos",
+          "setting": 4
+        },
+        {
+          "name": "wall",
+          "setting": 8192
+        },
+        {
+          "name": "manage",
+          "setting": 262144
+        },
+        {
+          "name": "market",
+          "setting": 134217728
+        }
+      ]
+    },
+    "methods": {
+      "photos.getWallUploadServer": {
+        "ok": false,
+        "code": 27,
+        "msg": "Group authorization failed: method is unavailable with group auth."
+      },
+      "photos.getOwnerPhotoUploadServer": {
+        "ok": false,
+        "code": 27,
+        "msg": "Group authorization failed: method is unavailable with group auth."
+      },
+      "photos.getOwnerCoverPhotoUploadServer": {
+        "ok": true
+      },
+      "photos.getMessagesUploadServer": {
+        "ok": true
+      },
+      "docs.getWallUploadServer": {
+        "ok": false,
+        "code": 15,
+        "msg": "Access denied: no access to call this method. It cannot be called with current scopes."
+      }
+    },
+    "group_state": {
+      "name": "АвтоТочка",
+      "status": "🚗 🔧",
+      "has_photo": 1,
+      "photo_200": "https://sun1-56.vkuserphoto.ru/s/v1/ig2/gGAeUDiRsdZ8ILj4TlWNJL0qOIHbFVgwbemhXyU_LHhbdbEsULXJUwwjxp7XeVRS-3sPbuHjUCpZOVnVjQD1yncm.jpg?quality=95&crop=111,85,816,816&as=32x32,48x48,72x72,108x108,160x160,240x240,360x360,480x480,540x540,640x640,720x720&ava=1&cs=200x200",
+      "cover_enabled": 1
+    },
+    "recent_wall_error": {
+      "code": 27,
+      "msg": "Group authorization failed: method is unavailable with group auth."
+    }
+  },
+  "image_probe": {
+    "motor": {
+      "found_urls": [],
+      "prepared": null
+    }
+  }
+}
