@@ -1,0 +1,122 @@
+{
+  "env_present": {
+    "VK_TOKEN": true,
+    "VK_USER_TOKEN": false,
+    "GIGACHAT_AUTH_KEY": true,
+    "YANDEX_API_KEY": false
+  },
+  "gigachat_key_shape": {
+    "raw_len": 100,
+    "cleaned_len": 100,
+    "had_auth_header": false,
+    "had_basic_prefix": false,
+    "had_bearer_prefix": false,
+    "is_single_uuid": false,
+    "is_raw_colon_pair": false,
+    "is_valid_base64": true,
+    "base64_decoded_len": 73,
+    "base64_decoded_has_colon": true,
+    "looks_like_jwt": false
+  },
+  "ai_client": "GigaChat",
+  "ai_test": {
+    "ok": true,
+    "reply_preview": "Связь с нейросетью установлена."
+  },
+  "vk": {
+    "has_vk_token": true,
+    "has_vk_user_token": false,
+    "vk_token_shape": {
+      "present": true,
+      "len": 220,
+      "contains_access_token_param": false,
+      "contains_ampersand": false,
+      "starts_with_http": false,
+      "starts_with_vk1": true,
+      "starts_with_vk2": false,
+      "has_quotes_or_spaces": false
+    },
+    "vk_user_token_shape": {
+      "present": false,
+      "len": 0,
+      "contains_access_token_param": false,
+      "contains_ampersand": false,
+      "starts_with_http": false,
+      "starts_with_vk1": false,
+      "starts_with_vk2": false,
+      "has_quotes_or_spaces": false
+    },
+    "group_id": 85500918,
+    "vk_token_is_user": false,
+    "community_token_permissions": {
+      "mask": 134488068,
+      "permissions": [
+        {
+          "name": "photos",
+          "setting": 4
+        },
+        {
+          "name": "wall",
+          "setting": 8192
+        },
+        {
+          "name": "manage",
+          "setting": 262144
+        },
+        {
+          "name": "market",
+          "setting": 134217728
+        }
+      ]
+    },
+    "methods": {
+      "photos.getWallUploadServer": {
+        "ok": false,
+        "code": 27,
+        "msg": "Group authorization failed: method is unavailable with group auth."
+      },
+      "photos.getOwnerPhotoUploadServer": {
+        "ok": false,
+        "code": 27,
+        "msg": "Group authorization failed: method is unavailable with group auth."
+      },
+      "photos.getOwnerCoverPhotoUploadServer": {
+        "ok": true
+      },
+      "photos.getMessagesUploadServer": {
+        "ok": true
+      },
+      "docs.getWallUploadServer": {
+        "ok": false,
+        "code": 15,
+        "msg": "Access denied: no access to call this method. It cannot be called with current scopes."
+      }
+    },
+    "group_state": {
+      "name": "АвтоТочка",
+      "status": "🚗 🔧",
+      "has_photo": 0,
+      "photo_200": "https://sun1-87.vkuserphoto.ru/impg/9FmuZgmL8ElIl3ap2VNqqvCJuR3XBTRcL5RstQ/IkJdt6c43WI.jpg?quality=96&as=32x32,48x48,72x72,108x108,160x160,240x240,360x360&sign=80af15cf714eb8b0c9b0fb180d3fb037&u=2YEVTlkKBuNPY0mjMeXr7QUGKVqyKPrs2k12FX4q3nE&cs=200x200",
+      "cover_enabled": 1
+    },
+    "recent_wall_error": {
+      "code": 27,
+      "msg": "Group authorization failed: method is unavailable with group auth."
+    }
+  },
+  "image_probe": {
+    "motor": {
+      "found_urls": [
+        "https://motor.ru/imgs/2026/11/10/14/7019833/1b6433e12869708cbb214563c58470e7f175d5a7.jpg",
+        "https://motor.ru/imgs/2026/11/10/14/7019833/a0d0a5c1e8a9ff4003a1b794bef93f4b9bc5ea3c.jpg",
+        "https://motor.ru/thumb/1280x720/smart/filters:quality(75)/imgs/2026/11/10/14/7019833/51d551ee58a3b674b526a0740e0e1699c0cd59d7.jpg"
+      ],
+      "prepared": {
+        "w": 1200,
+        "h": 628,
+        "mime": "image/jpeg",
+        "bytes": 744616
+      }
+    }
+  }
+}
