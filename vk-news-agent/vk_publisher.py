@@ -237,6 +237,32 @@ def download_and_prepare_image(
     return None
 
 
+def inspect_vk_token_shape(raw_tok: str) -> dict[str, Any]:
+    """Безопасная проверка формата токена ВК (без вывода секретных символов)."""
+    s = (raw_tok or "").strip()
+    return {
+        "present": bool(s),
+        "len": len(s),
+        "contains_access_token_param": "access_token=" in s,
+        "contains_ampersand": "&" in s,
+        "starts_with_http": s.lower().startswith("http"),
+        "starts_with_vk1": s.startswith("vk1.a."),
+        "starts_with_vk2": s.startswith("vk2.a."),
+        "has_quotes_or_spaces": bool(re.search(r'[\s"\'`]', s)),
+    }
+
+
+def normalize_vk_token(raw_tok: str) -> str:
+    """Извлекает чистый access_token, даже если пользователь скопировал весь URL из адресной строки."""
+    s = (raw_tok or "").strip().strip("\"'`").strip()
+    if "access_token=" in s:
+        after = s.split("access_token=", 1)[1]
+        s = after.split("&", 1)[0].split("#", 1)[0].strip()
+    elif "&" in s and ("expires_in=" in s or "user_id=" in s):
+        s = s.split("&", 1)[0].strip()
+    return s
+
+
 def parse_group_identifier(raw_group: str) -> tuple[int | None, str]:
     """Разбирает ссылку или короткое имя группы ('https://vk.ru/autoyar076', '-12345', 'club12345')."""
     cleaned = raw_group.strip()
@@ -299,8 +325,10 @@ class VKPublisher:
         vk_user_token: str = "",
         api_version: str = VK_API_VERSION,
     ) -> None:
-        self.vk_token = vk_token.strip()
-        self.vk_user_token = vk_user_token.strip()
+        self.raw_vk_token = vk_token
+        self.raw_vk_user_token = vk_user_token
+        self.vk_token = normalize_vk_token(vk_token)
+        self.vk_user_token = normalize_vk_token(vk_user_token)
         self.raw_group = vk_group.strip() or "autoyar076"
         self.api_version = api_version
         self.ssl_ctx = ssl.create_default_context()
@@ -743,18 +771,27 @@ class VKPublisher:
         diag: dict[str, Any] = {
             "has_vk_token": bool(self.vk_token),
             "has_vk_user_token": bool(self.vk_user_token),
-            "vk_token_prefix": self.vk_token[:6] if self.vk_token else "",
+            "vk_token_shape": inspect_vk_token_shape(self.raw_vk_token),
+            "vk_user_token_shape": inspect_vk_token_shape(self.raw_vk_user_token),
         }
         group_id = self.resolve_group_id()
         diag["group_id"] = group_id
 
-        # 1. Проверяем тип основного токена: пользователь или сообщество
+        # 1. Проверяем тип основного токена и пользовательского токена
         try:
             users = self.call_api("users.get", {}, token=self.vk_token)
             diag["vk_token_is_user"] = bool(isinstance(users, list) and len(users) > 0)
         except VKAPIError as exc:
             diag["vk_token_is_user"] = False
             diag["users_get_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        if self.vk_user_token:
+            try:
+                u2 = self.call_api("users.get", {}, token=self.vk_user_token)
+                diag["vk_user_token_valid_user"] = bool(isinstance(u2, list) and len(u2) > 0)
+            except VKAPIError as exc:
+                diag["vk_user_token_valid_user"] = False
+                diag["vk_user_token_error"] = {"code": exc.code, "msg": exc.vk_message}
 
         try:
             perms = self.call_api("groups.getTokenPermissions", {}, token=self.vk_token)
