@@ -98,7 +98,8 @@ def backfill_missing_wall_photos(
         cat = str(meta.get("category") or "news")
         prep_img: PreparedImage | None = None
 
-        if url.startswith(("http://", "https://")):
+        image_mode = str((config.get("posting") or {}).get("image_mode", "ai_only")).strip().lower()
+        if image_mode != "ai_only" and url.startswith(("http://", "https://")):
             cand = NewsCandidate(
                 title=str(meta.get("title") or ""),
                 url=url,

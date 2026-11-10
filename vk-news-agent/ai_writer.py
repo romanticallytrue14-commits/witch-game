@@ -20,9 +20,14 @@ from news_fetcher import NewsCandidate
 logger = logging.getLogger("vk_news_agent.ai")
 
 META_PREAMBLE_RE = re.compile(
-    r"^(вот\s+(готовый\s+)?пост[^\n]*:\s*|конечно[,!]?\s*вот\s+вариант[^\n]*:\s*|готовый\s+текст\s+поста[^\n]*:\s*)",
+    r"^(вот\s+(готовый\s+|исправленный\s+|отредактированный\s+)?(пост|текст|вариант)[^\n]*:\s*"
+    r"|конечно[,!]?\s*вот\s+вариант[^\n]*:\s*"
+    r"|готовый\s+текст\s+поста[^\n]*:\s*"
+    r"|исправленный\s+(текст|вариант|пост)[^\n]*:\s*"
+    r"|отредактированный\s+(текст|вариант|пост)[^\n]*:\s*)",
     re.IGNORECASE,
 )
+GIGACHAT_IMG_TAG_RE = re.compile(r'<img\b[^>]*?\bsrc=["\']([A-Za-z0-9_-]{8,128})["\'][^>]*>', re.IGNORECASE)
 
 MONTH_SEASON_HINT = {
     1: "январь, разгар зимы, морозы, реагенты и снежная каша на дорогах",
@@ -290,6 +295,119 @@ class GigaChatClient:
         if not content:
             raise AIProviderError("GigaChat вернул пустую строку текста")
         return content
+
+    def _extract_client_id(self) -> str:
+        """Извлекает UUID client_id из Base64-ключа (для заголовка X-Client-ID при скачивании файлов)."""
+        try:
+            padded = self.auth_key + ("=" * ((4 - len(self.auth_key) % 4) % 4))
+            decoded = base64.b64decode(padded).decode("utf-8", errors="ignore")
+            if ":" in decoded:
+                cid = decoded.split(":", 1)[0].strip()
+                if re.fullmatch(r"[0-9a-fA-F-]{32,36}", cid):
+                    return cid
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    def _download_file_bytes(self, api_base: str, file_id: str, token: str) -> bytes:
+        """Скачивает сгенерированное GigaChat изображение через GET /files/{file_id}/content."""
+        file_url = f"{api_base.rstrip('/')}/files/{file_id}/content"
+        headers: dict[str, str] = {
+            "Accept": "application/jpg",
+            "Authorization": f"Bearer {token}",
+        }
+        cid = self._extract_client_id()
+        if cid:
+            headers["X-Client-ID"] = cid
+
+        last_err: Exception | None = None
+        for attempt in range(3):
+            req = urllib.request.Request(file_url, headers=headers, method="GET")
+            try:
+                with urllib.request.urlopen(req, timeout=60, context=self.ssl_ctx) as resp:
+                    raw = resp.read()
+                if raw.startswith((b"\xff\xd8", b"\x89PNG", b"RIFF")):
+                    return raw
+                # На случай обёртки JSON {"content": "<base64>"}
+                try:
+                    as_json = json.loads(raw.decode("utf-8", errors="ignore"))
+                    if isinstance(as_json, dict) and as_json.get("content"):
+                        return base64.b64decode(str(as_json["content"]))
+                except Exception:  # noqa: BLE001
+                    pass
+                if len(raw) > 2048:
+                    return raw
+                raise AIProviderError(f"Слишком маленький ответ файла GigaChat ({len(raw)} байт)")
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as exc:
+                last_err = exc
+                if attempt < 2:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+        raise AIProviderError(f"Не удалось скачать изображение {file_id} из GigaChat: {last_err}")
+
+    def generate_image_bytes(self, prompt: str, system_prompt: str = "") -> tuple[bytes, str]:
+        """Генерирует уникальную иллюстрацию через встроенный text2image (Kandinsky) в GigaChat."""
+        token = self._get_access_token()
+        clean_prompt = prompt.strip()
+        if not clean_prompt.lower().startswith("нарисуй"):
+            clean_prompt = f"Нарисуй {clean_prompt}"
+
+        sys_msg = (
+            system_prompt.strip()
+            or "Ты — профессиональный автомобильный иллюстратор и фотохудожник журнала «АвтоТочка»."
+        )
+
+        prompts_to_try = [
+            clean_prompt,
+            f"Нарисуй фотореалистичную автомобильную иллюстрацию без каких-либо надписей и букв: {prompt.strip()}",
+        ]
+
+        last_err: Exception | None = None
+        for user_msg in prompts_to_try:
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": sys_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                "function_call": "auto",
+                "temperature": 0.7,
+                "stream": False,
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+            for chat_url in self.chat_urls:
+                try:
+                    data = _http_post_json(
+                        chat_url,
+                        headers,
+                        body_bytes,
+                        ssl_ctx=self.ssl_ctx,
+                        timeout=95,
+                        retries=1,
+                    )
+                    choices = data.get("choices") or []
+                    content = str((choices[0].get("message") or {}).get("content", "")) if choices else ""
+                    m = GIGACHAT_IMG_TAG_RE.search(content)
+                    if not m:
+                        last_err = AIProviderError(
+                            f"GigaChat не вызвал генерацию картинки (ответ без <img src=...>): {content[:160]}"
+                        )
+                        break  # переходим ко второй более жёсткой формулировке "Нарисуй..."
+                    file_id = m.group(1)
+                    api_base = chat_url.rsplit("/chat/completions", 1)[0]
+                    img_bytes = self._download_file_bytes(api_base, file_id, token)
+                    return img_bytes, file_id
+                except AIProviderError as exc:
+                    last_err = exc
+                    continue
+
+        raise last_err or AIProviderError("Не удалось сгенерировать изображение через GigaChat")
 
 
 class YandexGPTClient:
@@ -578,7 +696,7 @@ def create_ai_client(config: dict[str, Any], allow_template_fallback: bool = Fal
 
 
 def clean_markdown_for_vk(raw_text: str) -> str:
-    """Удаляет Markdown-разметку (**жирный**, ### заголовки и др.), которую не поддерживает стена ВК."""
+    """Удаляет Markdown-разметку (**жирный**, ### заголовки, <img> и др.), которую не поддерживает стена ВК."""
     text = raw_text.strip()
     # Убираем обрамляющие кавычки или кодовые блоки, если модель обернула ответ
     text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
@@ -587,6 +705,8 @@ def clean_markdown_for_vk(raw_text: str) -> str:
     if len(text) > 20 and text.startswith('"') and text.endswith('"'):
         text = text[1:-1].strip()
 
+    # Убираем возможные HTML-теги <img> от GigaChat, если вдруг попали в текст
+    text = re.sub(r"<img\b[^>]*>", "", text, flags=re.IGNORECASE)
     # Markdown-ссылки [анкор](url) -> анкор
     text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", text)
     # Заголовки ### Текст -> Текст
@@ -597,6 +717,10 @@ def clean_markdown_for_vk(raw_text: str) -> str:
     text = re.sub(r"(?m)^\*\s+", "• ", text)
     text = re.sub(r"(?m)^-\s+", "• ", text)
     text = text.replace("**", "").replace("__", "")
+    # Аккуратная чистка задвоенных пробелов и случайной двойной пунктуации ("..", ",,")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"(?<!\.)\.\.(?!\.)", ".", text)
+    text = re.sub(r",,+", ",", text)
 
     # Вычищаем случайные хештеги внутри ответа модели (мы добавим аккуратную строку хештегов сами)
     lines = [ln.rstrip() for ln in text.splitlines()]
@@ -717,13 +841,141 @@ def select_best_candidate_with_ai(
     return shortlist[0]
 
 
+def proofread_vk_post_with_ai(
+    client: Any,
+    draft_text: str,
+    source_facts: str,
+    config: dict[str, Any],
+) -> str:
+    """Второй проход ИИ-корректора: выверяет орфографию, пунктуацию, падежи и точность цифр."""
+    if isinstance(client, TemplateFallbackClient):
+        return draft_text
+    if not (config.get("ai") or {}).get("proofread_posts", True):
+        return draft_text
+
+    cleaned_draft = clean_markdown_for_vk(draft_text)
+    if len(cleaned_draft) < 120:
+        return draft_text
+
+    system_prompt = (
+        "Ты строгий литературный редактор и корректор русского языка автомобильного издания «АвтоТочка».\n"
+        "Твоя задача — вычитать готовый черновик поста для ВКонтакте и довести русский язык до идеала, "
+        "сохранив живой тон, структуру абзацев, эмодзи и лёгкую добрую водительскую иронию.\n"
+        "ЧТО ПРОВЕРИТЬ ОБЯЗАТЕЛЬНО:\n"
+        "1. Орфография, пунктуация, падежи и склонение числительных (например: «до 2 млн рублей», «по обеим полосам»).\n"
+        "2. Автомобильная грамотность: никаких «одеть резину» (верно: «поставить шины» / «переобуть машину»), "
+        "никаких речевых повторов в соседних предложениях и канцелярских штампов.\n"
+        "3. Точность фактов: сверь цены, даты, мощности и названия моделей с исходной фактурой (ничего не додумывай).\n"
+        "4. Строго без Markdown (**звёздочек**, ### заголовков), без хештегов и без твоих комментариев от лица редактора.\n"
+        "Верни ТОЛЬКО вычитанный текст поста."
+    )
+    facts_block = f"ИСХОДНАЯ ФАКТУРА ДЛЯ СВЕРКИ ЦИФР:\n{source_facts[:1800]}\n\n" if source_facts else ""
+    user_prompt = f"{facts_block}ЧЕРНОВИК ПОСТА:\n{cleaned_draft}"
+
+    try:
+        checked = client.generate(system_prompt, user_prompt, temperature=0.15, max_tokens=1300)
+        checked_clean = clean_markdown_for_vk(checked)
+        if len(checked_clean) >= max(160, int(len(cleaned_draft) * 0.6)):
+            return checked_clean
+    except AIProviderError as exc:
+        logger.warning("Проход ИИ-корректора пропущен, оставляем основной текст: %s", exc)
+
+    return draft_text
+
+
+def build_ai_image_prompt(
+    client: Any,
+    *,
+    title: str,
+    post_text: str,
+    category: str,
+) -> str:
+    """Формирует сюжет для генерации иллюстрации с лёгкой доброй иронией и защитой от визуальных артефактов."""
+    anti_artifact_tail = (
+        " Фотореалистичная журнальная автомобильная иллюстрация, выразительный тёплый янтарный и холодный стальной свет, "
+        "чёткая правильная геометрия кузова, колёс и фар. "
+        "СТРОГО БЕЗ надписей, БЕЗ букв, БЕЗ цифр, БЕЗ вывесок, БЕЗ дорожных знаков с текстом, "
+        "пустая чёрная рамка без госномера, без людей и рук крупным планом."
+    )
+
+    default_scenes = {
+        "tip": (
+            f"Нарисуй с лёгкой тёплой водительской иронией сцену по теме «{title}»: "
+            "ухоженный современный автомобиль в уютном освещённом гараже-мастерской, рядом аккуратный инструмент "
+            "и горячая кружка чая на верстаке."
+        ),
+        "local_76": (
+            f"Нарисуй атмосферную автомобильную сцену по теме «{title}»: "
+            "современный кроссовер уверенно едет по красивой вечерней российской дороге с тёплым светом фонарей и отражениями на асфальте."
+        ),
+        "news": (
+            f"Нарисуй яркую редакционную автомобильную сцену с тонкой визуальной иронией по теме «{title}»: "
+            "современный стильный автомобиль крупным планом на эффектном подиуме или вечернем проспекте."
+        ),
+    }
+    fallback_prompt = default_scenes.get(category, default_scenes["news"]) + anti_artifact_tail
+
+    if isinstance(client, TemplateFallbackClient):
+        return fallback_prompt
+
+    system_prompt = (
+        "Ты арт-директор автомобильного журнала. Придумай ОДНО короткое (2–3 предложения на русском языке) "
+        "описание визуальной сцены для художника-иллюстратора по теме поста.\n"
+        "ПРАВИЛА БЕЗОШИБОЧНОЙ ГЕНЕРАЦИИ:\n"
+        "1. Начни строго со слова «Нарисуй».\n"
+        "2. Главный герой кадра — автомобиль или узнаваемая дорожная/гаражная деталь с лёгкой доброй визуальной иронией, "
+        "подходящей под тему (но без карикатурных искажений кузова).\n"
+        "3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО просить нарисовать любые надписи, буквы, цифры, ценники, купюры с номиналом, "
+        "вывески, плакаты, экраны с текстом, госномера, а также лица или пальцы рук крупным планом!"
+    )
+    user_prompt = f"Тема поста: {title}\nКраткий текст:\n{post_text[:600]}\n\nОписание сцены (начни со слова «Нарисуй»):"
+
+    try:
+        scene = client.generate(system_prompt, user_prompt, temperature=0.55, max_tokens=150).strip()
+        scene = clean_markdown_for_vk(scene).replace("\n", " ").strip()
+        if len(scene) >= 30:
+            if not scene.lower().startswith("нарисуй"):
+                scene = f"Нарисуй {scene}"
+            return scene + anti_artifact_tail
+    except AIProviderError as exc:
+        logger.warning("Арт-директор использовал базовый сюжет иллюстрации: %s", exc)
+
+    return fallback_prompt
+
+
+def generate_ai_post_illustration(
+    client: Any,
+    *,
+    title: str,
+    post_text: str,
+    category: str,
+    config: dict[str, Any],
+) -> tuple[bytes, str] | None:
+    """Генерирует собственную уникальную ИИ-иллюстрацию к посту (0% чужих авторских прав)."""
+    if not (config.get("ai") or {}).get("generate_images", True):
+        return None
+    if not hasattr(client, "generate_image_bytes"):
+        return None
+
+    img_prompt = build_ai_image_prompt(
+        client,
+        title=title,
+        post_text=post_text,
+        category=category,
+    )
+    logger.info("Запрашиваем генерацию уникальной ИИ-иллюстрации в %s...", getattr(client, "name", "AI"))
+    img_bytes, file_id = client.generate_image_bytes(img_prompt)
+    logger.info("ИИ-иллюстрация успешно создана (id=%s, %d КБ)", file_id, len(img_bytes) // 1024)
+    return img_bytes, f"ai:{getattr(client, 'name', 'AI')}:{file_id}"
+
+
 def write_news_post(
     client: Any,
     candidate: NewsCandidate,
     config: dict[str, Any],
     now: datetime | None = None,
 ) -> str:
-    """Генерирует живой авторский пост по найденной новости или автостатье."""
+    """Генерирует живой авторский пост с лёгким водительским юмором и проверкой грамотности."""
     dt = now or datetime.now(timezone.utc)
     season_note = MONTH_SEASON_HINT.get(dt.month, "текущий сезон")
     ai_cfg = config.get("ai", {})
@@ -735,16 +987,21 @@ def write_news_post(
         "Ты опытный автоэксперт и главный редактор живого автомобильного сообщества ВКонтакте "
         f"«{group_title}» (Ярославль и Ярославская область, 76 регион, https://vk.ru/autoyar076). "
         "Твоя аудитория — реальные водители, автовладельцы, покупатели машин с пробегом и любители авто.\n"
-        "Пиши живо, по делу, человеческим языком без канцелярита и штампов вроде «В современном мире».\n"
-        "СТРОГИЕ ПРАВИЛА ФОРМАТИРОВАНИЯ ВКОНТАКТЕ:\n"
+        "СТИЛЬ И ЮМОР:\n"
+        "- Пиши живо, по делу, безупречно грамотным русским языком без канцелярита и штампов.\n"
+        "- Добавь 1–2 лёгких, умных и добрых ироничных замечания из реальной жизни российского автомобилиста "
+        "(без клоунады, бородатых анекдотов и подросткового сленга). ВАЖНО: если тема касается безопасности или "
+        "экстренных перекрытий — пиши спокойно и уважительно без шуток.\n"
+        "СТРОГИЕ ПРАВИЛА БЕЗ ОШИБОК:\n"
         "1. НИКОГДА не используй Markdown: никаких звёздочек **жирный**, решёток ### для заголовков и [ссылок](url).\n"
-        "2. Не выдумывай цифры, штрафы, цены или законы, которых нет в фактуре новости.\n"
-        "3. Не вставляй внешние ссылки и хештеги (хештеги система добавит сама автоматически).\n"
-        "4. Объём текста: 700–1600 знаков, разбивка на короткие удобные абзацы по 2–3 предложения."
+        "2. Строго проверяй орфографию, пунктуацию, падежи и склонение числительных.\n"
+        "3. Не выдумывай цифры, штрафы, цены или законы, которых нет в фактуре новости.\n"
+        "4. Не вставляй внешние ссылки и хештеги (хештеги система добавит сама автоматически).\n"
+        "5. Объём текста: 700–1550 знаков, короткие удобные абзацы по 2–3 предложения."
     )
 
     local_hint = (
-        "Новость напрямую касается Ярославля / 76 региона — сделай тёплый акцент для местных водителей."
+        "Новость напрямую касается Ярославля / 76 региона — сделай тёплый местный акцент для водителей."
         if candidate.category == "local_76"
         else "Если уместно по смыслу (без натяжки), добавь короткую практическую ремарку для российских/ярославских условий эксплуатации."
     )
@@ -758,7 +1015,7 @@ def write_news_post(
         f"ФАКТУРА НОВОСТИ:\n{excerpt}\n\n"
         "ТРЕБОВАНИЯ К ПОСТУ:\n"
         "- Первая строка: яркий, цепляющий заголовок с 1 уместным эмодзи в начале (например 🚗, ⚡, 🔧, 🛞, 📌).\n"
-        "- Далее: суть события простым и бодрым языком с ключевыми деталями и цифрами из фактуры.\n"
+        "- Далее: суть события бодрым живым языком с ключевыми деталями, цифрами и лёгкой водительской иронией там, где она к месту.\n"
         "- Отдельный короткий блок с подзаголовком «💡 Что важно учесть водителю:» (1–2 практических совета или вывод по теме).\n"
         f"- {local_hint}\n"
         "- В самом конце: 1 живой вопрос к подписчикам, чтобы водители захотели обсудить тему в комментариях.\n"
@@ -766,8 +1023,9 @@ def write_news_post(
     )
 
     raw_post = client.generate(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens)
+    checked_post = proofread_vk_post_with_ai(client, raw_post, f"{candidate.title}\n{excerpt}", config)
     return finalize_vk_post(
-        raw_post,
+        checked_post,
         config,
         category=candidate.category,
         source_name=candidate.source_name,
@@ -781,7 +1039,7 @@ def write_evergreen_tip_post(
     config: dict[str, Any],
     now: datetime | None = None,
 ) -> str:
-    """Генерирует полезный авторский пост-разбор из рубрики «Полезно водителю / Авторазбор»."""
+    """Генерирует полезный авторский пост-разбор с лёгким гаражным юмором и проверкой грамотности."""
     dt = now or datetime.now(timezone.utc)
     season_note = MONTH_SEASON_HINT.get(dt.month, "текущий сезон")
     ai_cfg = config.get("ai", {})
@@ -791,13 +1049,14 @@ def write_evergreen_tip_post(
     group_title = str(config.get("group", {}).get("title", "АвтоТочка"))
     system_prompt = (
         "Ты практикующий мастер-приёмщик, автоподборщик и редактор сообщества ВКонтакте "
-        f"«{group_title}» (Ярославль, 76 регион). Пиши экспертно, дружелюбно, с конкретной технической пользой, "
-        "как опытный товарищ по гаражу и автосервису.\n"
+        f"«{group_title}» (Ярославль, 76 регион). Пиши экспертно, тепло, безупречно грамотным русским языком, "
+        "с лёгкой доброй водительской иронией опытного товарища по автосервису (без плоских шуток и сленга).\n"
         "СТРОГИЕ ПРАВИЛА ФОРМАТИРОВАНИЯ ВКОНТАКТЕ:\n"
         "1. НИКОГДА не используй Markdown: никаких **звёздочек**, __подчёркиваний__ и ### заголовков.\n"
-        "2. Для списков используй аккуратные маркеры «•» или цифры «1)», «2)».\n"
-        "3. Не пиши хештеги (система добавит их сама).\n"
-        "4. Объём: 900–1800 знаков, короткие абзацы с пустыми строками между ними."
+        "2. Строго следи за орфографией, пунктуацией и точностью автомобильных терминов.\n"
+        "3. Для списков используй аккуратные маркеры «•» или цифры «1)», «2)».\n"
+        "4. Не пиши хештеги (система добавит их сама).\n"
+        "5. Объём: 900–1750 знаков, короткие абзацы с пустыми строками между ними."
     )
 
     title = str(topic.get("title", "Полезный совет автомобилисту"))
@@ -809,16 +1068,17 @@ def write_evergreen_tip_post(
         f"КЛЮЧЕВЫЕ ТЕЗИСЫ:\n{angle}\n\n"
         "ТРЕБОВАНИЯ К ПОСТУ:\n"
         "- Первая строка: сильный заголовок рубрики (начни с 🔧 или 🛞).\n"
-        "- Короткое жизненное вступление (почему на этом часто обжигаются водители в городе и на трассе).\n"
-        "- Чёткий практический чек-лист из 3–5 пунктов без воды и мифов.\n"
+        "- Короткое жизненное вступление с лёгкой доброй иронией (почему на этом часто обжигаются водители).\n"
+        "- Чёткий практический чек-лист из 3–5 пунктов без воды и гаражных мифов.\n"
         "- Короткий итог: как сэкономить ресурс машины и деньги на ремонте.\n"
         "- В конце: живой вопрос к подписчикам об их личном опыте.\n"
         "- Выведи ТОЛЬКО готовый текст поста."
     )
 
     raw_post = client.generate(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens)
+    checked_post = proofread_vk_post_with_ai(client, raw_post, f"{title}\n{angle}", config)
     return finalize_vk_post(
-        raw_post,
+        checked_post,
         config,
         category="tip",
         source_name="",
