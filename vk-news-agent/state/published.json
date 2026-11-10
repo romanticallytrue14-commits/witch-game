@@ -1,6 +1,26 @@
 {
   "version": 1,
-  "total_posts": 0,
+  "total_posts": 1,
   "used_evergreen_ids": [],
-  "items": []
+  "items": [
+    {
+      "url": "https://76.ru/text/incidents/2026/11/10/76755889/",
+      "normalized_url": "https://76.ru/text/incidents/2026/11/10/76755889",
+      "guid": "76755889",
+      "title": "Грузовик снес остановку: новые кадры с места смертельного ДТП под Ярославлем",
+      "tokens": [
+        "грузови",
+        "снес",
+        "останов",
+        "кадр",
+        "мест",
+        "смертел",
+        "дтп",
+        "ярослав"
+      ],
+      "category": "local_76",
+      "vk_post_id": 178,
+      "published_at": "2026-11-10T14:32:34.045547+00:00"
+    }
+  ]
 }
