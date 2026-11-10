@@ -200,7 +200,22 @@ class AIWriterAndFormattingTests(unittest.TestCase):
         self.assertIn("• Тёплый пакет уже в базе", final_text)
         self.assertIn("📰 По материалам: Колёса.ру", final_text)
         self.assertIn("#autoyar076", final_text)
+        self.assertIn("#автоновости@autoyar076", final_text)
         self.assertIn("#автоярославль", final_text)
+
+    def test_gigachat_header_normalization_and_uuid_warning(self) -> None:
+        expected_b64 = base64.b64encode(b"cid:csec").decode("ascii")
+        self.assertEqual(
+            ai_writer.normalize_gigachat_auth_key(f"Authorization: Basic {expected_b64}"),
+            expected_b64,
+        )
+        self.assertEqual(
+            ai_writer.normalize_gigachat_auth_key(f'"{expected_b64}"'),
+            expected_b64,
+        )
+        shape = ai_writer.inspect_gigachat_key_shape("019a0000-1111-2222-3333-444455556666")
+        self.assertTrue(shape["is_single_uuid"])
+        self.assertFalse(shape["is_valid_base64"])
 
     def test_gigachat_oauth_and_completion_protocol(self) -> None:
         calls: list[tuple[str, dict[str, str], bytes]] = []
@@ -486,9 +501,17 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
         cover_info = vk_publisher.inspect_image_dimensions((AGENT_DIR / "branding" / "cover.jpg").read_bytes())
         avatar_info = vk_publisher.inspect_image_dimensions((AGENT_DIR / "branding" / "avatar.jpg").read_bytes())
         pin_info = vk_publisher.inspect_image_dimensions((AGENT_DIR / "branding" / "pinned_post.jpg").read_bytes())
+        tip_card_info = vk_publisher.inspect_image_dimensions(
+            (AGENT_DIR / "branding" / "cards" / "tip.jpg").read_bytes()
+        )
+        menu_info = vk_publisher.inspect_image_dimensions(
+            (AGENT_DIR / "branding" / "menu" / "menu_news.jpg").read_bytes()
+        )
         self.assertEqual(cover_info, ("jpeg", 1920, 768))
         self.assertEqual(avatar_info, ("jpeg", 1024, 1024))
-        self.assertEqual(pin_info, ("jpeg", 1280, 1280))
+        self.assertEqual(pin_info, ("jpeg", 1280, 800))
+        self.assertEqual(tip_card_info, ("jpeg", 1280, 800))
+        self.assertEqual(menu_info, ("jpeg", 376, 256))
 
         called_methods: list[str] = []
 
@@ -501,6 +524,7 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
             if "groups.edit" in url:
                 called_methods.append("groups.edit")
                 self.assertIn("group_id=760076", body_str)
+                self.assertIn("subject=1", body_str)
                 return FakeHTTPResponse(json.dumps({"response": 1}).encode("utf-8"))
             if "status.set" in url:
                 called_methods.append("status.set")
@@ -527,12 +551,17 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
                 )
             if "pu.vk.ru/avatar_upl" in url:
                 called_methods.append("upload_avatar")
+                self.assertIn("_square_crop", body_str)
+                self.assertIn("0,0,1024", body_str)
                 return FakeHTTPResponse(
                     json.dumps({"server": 7, "hash": "ahash", "photo": "aphoto"}).encode("utf-8")
                 )
             if "photos.saveOwnerPhoto" in url:
                 called_methods.append("saveOwnerPhoto")
                 return FakeHTTPResponse(json.dumps({"response": {"saved": 1}}).encode("utf-8"))
+            if "wall.get" in url:
+                called_methods.append("wall.get")
+                return FakeHTTPResponse(json.dumps({"response": {"items": []}}).encode("utf-8"))
             if "photos.getWallUploadServer" in url:
                 called_methods.append("getWallUploadServer")
                 return FakeHTTPResponse(
@@ -560,6 +589,7 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             sum_file = Path(tmpdir) / "branding_summary.md"
+            tmp_b_state = Path(tmpdir) / "branding_state.json"
             with patch.dict(
                 os.environ,
                 {"VK_TOKEN": "admin-tok", "GITHUB_STEP_SUMMARY": str(sum_file)},
@@ -567,7 +597,9 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
             ), patch("urllib.request.urlopen", side_effect=fake_branding_urlopen):
                 rc = setup_group_profile.apply_group_branding(
                     config_path=AGENT_DIR / "config.json",
+                    branding_state_path=tmp_b_state,
                     dry_run=False,
+                    backfill_photos=False,
                 )
                 self.assertEqual(rc, 0)
                 self.assertIn("saveOwnerCoverPhoto", called_methods)

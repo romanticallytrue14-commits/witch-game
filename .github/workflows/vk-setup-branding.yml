@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       apply_info:
-        description: "Обновить название «АвтоТочка», статус и описание группы"
+        description: "Обновить название «АвтоТочка», тематику, статус и описание группы"
         required: false
         type: boolean
         default: true
@@ -27,10 +27,20 @@ on:
         type: boolean
         default: true
       apply_pinned:
-        description: "Опубликовать и закрепить приветственный пост с баннером"
+        description: "Опубликовать/обновить и закрепить приветственный пост с баннером"
         required: false
         type: boolean
         default: true
+      backfill_photos:
+        description: "Догрузить пропущенные фото к недавним постам на стене"
+        required: false
+        type: boolean
+        default: true
+      force_new_pinned:
+        description: "Создать новый закреп вместо обновления существующего"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -43,13 +53,8 @@ jobs:
 
     env:
       VK_TOKEN: ${{ secrets.VK_TOKEN || secrets.VK_ACCESS_TOKEN || secrets.VK_API_TOKEN || secrets.TOKEN }}
-      VK_USER_TOKEN: ${{ secrets.VK_USER_TOKEN }}
+      VK_USER_TOKEN: ${{ secrets.VK_USER_TOKEN || secrets.VK_ADMIN_TOKEN || secrets.USER_TOKEN }}
       VK_GROUP: ${{ secrets.VK_GROUP }}
-      GIGACHAT_AUTH_KEY: ${{ secrets.GIGACHAT_AUTH_KEY || secrets.GIGACHAT_KEY || secrets.GIGACHAT_API_KEY || secrets.GIGACHAT_CREDENTIALS || secrets.GIGACHAT_TOKEN }}
-      GIGACHAT_SCOPE: ${{ secrets.GIGACHAT_SCOPE }}
-      GIGACHAT_MODEL: ${{ secrets.GIGACHAT_MODEL }}
-      YANDEX_API_KEY: ${{ secrets.YANDEX_API_KEY || secrets.YANDEX_GPT_API_KEY }}
-      YANDEX_FOLDER_ID: ${{ secrets.YANDEX_FOLDER_ID }}
 
     steps:
       - name: Получение кода и графики оформления
@@ -60,17 +65,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Проверка утилит конвертации изображений
+        run: |
+          if ! command -v convert >/dev/null 2>&1 && ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends imagemagick
+          fi
+
       - name: Применение оформления сообщества «АвтоТочка»
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            python3 vk-news-agent/agent.py --diagnose vk-news-agent/state/diag.json
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add vk-news-agent/state/diag.json
-            git commit -m "chore: diagnostic report [skip ci]"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-            exit 0
-          fi
           ARGS=()
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)
@@ -87,4 +89,24 @@ jobs:
           if [ "${{ inputs.apply_pinned }}" = "false" ]; then
             ARGS+=(--skip-pinned)
           fi
+          if [ "${{ inputs.backfill_photos }}" = "false" ]; then
+            ARGS+=(--skip-backfill)
+          fi
+          if [ "${{ inputs.force_new_pinned }}" = "true" ]; then
+            ARGS+=(--force-new-pinned)
+          fi
           python3 vk-news-agent/setup_group_profile.py "${ARGS[@]}"
+
+      - name: Сохранение состояния оформления
+        if: success() && inputs.dry_run != true && github.event.inputs.dry_run != 'true'
+        continue-on-error: true
+        run: |
+          if git diff --quiet vk-news-agent/state/branding_state.json; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vk-news-agent/state/branding_state.json
+          git commit -m "chore(vk-news-agent): update branding state [skip ci]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

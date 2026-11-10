@@ -226,6 +226,12 @@ class GigaChatClient:
                     break
                 continue
         if last_err is not None:
+            if shape["is_single_uuid"]:
+                raise AIProviderError(
+                    "В секрете GIGACHAT_AUTH_KEY указан 36-символьный Client ID проекта вместо ключа авторизации "
+                    "(Authorization key, ~100 символов Base64). В Sber Studio → Настройки API нажмите "
+                    "«Получить новый ключ» и вставьте длинный Authorization key в GIGACHAT_AUTH_KEY."
+                ) from last_err
             raise last_err
 
         token = str(data.get("access_token", "")).strip()
@@ -515,9 +521,18 @@ def create_ai_client(config: dict[str, Any], allow_template_fallback: bool = Fal
     giga_key = (
         os.getenv("GIGACHAT_AUTH_KEY")
         or os.getenv("GIGACHAT_CREDENTIALS")
+        or os.getenv("GIGACHAT_KEY")
+        or os.getenv("GIGACHAT_API_KEY")
         or os.getenv("SBER_API_KEY")
         or ""
     ).strip()
+    giga_client_id = (os.getenv("GIGACHAT_CLIENT_ID") or "").strip()
+    giga_client_secret = (os.getenv("GIGACHAT_CLIENT_SECRET") or os.getenv("GIGACHAT_SECRET") or "").strip()
+    if giga_client_secret:
+        if giga_client_id:
+            giga_key = f"{giga_client_id}:{giga_client_secret}"
+        elif giga_key and inspect_gigachat_key_shape(giga_key)["is_single_uuid"]:
+            giga_key = f"{giga_key}:{giga_client_secret}"
 
     yandex_folder = (os.getenv("YANDEX_FOLDER_ID") or "").strip()
     yandex_key = (os.getenv("YANDEX_API_KEY") or os.getenv("YANDEX_GPT_API_KEY") or "").strip()
@@ -585,7 +600,7 @@ def clean_markdown_for_vk(raw_text: str) -> str:
 
     # Вычищаем случайные хештеги внутри ответа модели (мы добавим аккуратную строку хештегов сами)
     lines = [ln.rstrip() for ln in text.splitlines()]
-    while lines and re.fullmatch(r"(?:\s*#[a-zA-Zа-яА-ЯёЁ0-9_]+)+\s*", lines[-1]):
+    while lines and re.fullmatch(r"(?:\s*#[a-zA-Zа-яА-ЯёЁ0-9_@]+)+\s*", lines[-1]):
         lines.pop()
 
     cleaned = "\n".join(lines).strip()
@@ -608,7 +623,7 @@ def build_hashtags(config: dict[str, Any], category: str) -> str:
             continue
         if not tag.startswith("#"):
             tag = f"#{tag}"
-        tag_norm = re.sub(r"[^#a-zA-Zа-яА-ЯёЁ0-9_]", "", tag.lower())
+        tag_norm = re.sub(r"[^#@a-zA-Zа-яА-ЯёЁ0-9_]", "", tag.lower())
         if len(tag_norm) <= 1 or tag_norm in seen:
             continue
         seen.add(tag_norm)

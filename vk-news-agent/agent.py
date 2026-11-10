@@ -35,10 +35,11 @@ from news_fetcher import (  # noqa: E402
     fetch_url_bytes,
 )
 from vk_publisher import (  # noqa: E402
+    PreparedImage,
     VKAPIError,
     VKPublisher,
     download_and_prepare_image,
-    encode_multipart_photo,
+    inspect_image_dimensions,
 )
 
 logger = logging.getLogger("vk_news_agent")
@@ -50,6 +51,35 @@ def load_config(config_path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Некорректный формат конфигурации: {config_path}")
     return data
+
+
+def load_fallback_editorial_card(config: dict[str, Any], category: str) -> PreparedImage | None:
+    """Загружает фирменную обложку рубрики «АвтоТочка», если у статьи или автосовета нет внешнего фото."""
+    cards_map = (config.get("branding") or {}).get("fallback_cards") or {}
+    default_rel = {
+        "news": "branding/cards/news.jpg",
+        "tip": "branding/cards/tip.jpg",
+        "local_76": "branding/cards/road.jpg",
+    }
+    rel_path = str(cards_map.get(category) or default_rel.get(category) or "branding/cards/news.jpg")
+    card_path = AGENT_DIR / rel_path
+    if not card_path.exists():
+        return None
+    raw = card_path.read_bytes()
+    info = inspect_image_dimensions(raw)
+    if info is None:
+        return None
+    fmt, w, h = info
+    mime = "image/png" if fmt == "png" else "image/jpeg"
+    ext = "png" if fmt == "png" else "jpg"
+    return PreparedImage(
+        data=raw,
+        filename=f"avtotochka_{category}.{ext}",
+        mime_type=mime,
+        width=w,
+        height=h,
+        source_url=f"local:{rel_path}",
+    )
 
 
 def append_github_summary(markdown_block: str) -> None:
@@ -240,6 +270,9 @@ def run_agent(
                 logger.warning("Основной ИИ-сервис вернул ошибку (%s) — переключаемся на встроенный редактор.", exc)
                 post_text = write_evergreen_tip_post(TemplateFallbackClient(), evergreen_topic, config, now=now)
 
+        if prepared_img is None and posting_cfg.get("use_branded_card_if_no_source_photo", True):
+            prepared_img = load_fallback_editorial_card(config, post_category)
+
         print("\n" + "=" * 72)
         print(f"ПОДГОТОВЛЕН ПОСТ ({post_category.upper()}) — {post_source}")
         print(f"Тема: {post_title}")
@@ -300,7 +333,11 @@ def run_agent(
         dedup.save()
         published_count += 1
 
-        photo_badge = "✅ Фото прикреплено" if result.get("photo_attached") else "⚪ Только текст"
+        photo_badge = (
+            "✅ Фото прикреплено"
+            if result.get("photo_attached")
+            else "⚪ Только текст (для загрузки фото в ВК добавьте секрет `VK_USER_TOKEN`)"
+        )
         summary_sections.append(
             f"### ✅ Опубликован пост #{published_count}\n"
             f"- **Ссылка на запись ВК**: [{vk_post_url}]({vk_post_url})\n"
@@ -402,74 +439,33 @@ def run_diagnostics(config_path: Path, report_path: Path) -> int:
     except Exception as exc:  # noqa: BLE001
         report["ai_test"] = {"ok": False, "error": str(exc)[:300]}
 
-    # 2. Тест ВК + проверка saveMessagesPhoto (без публикации на стену)
+    # 2. Тест ВК (только безопасное чтение прав без публикации)
     if vk_token:
         pub = VKPublisher(vk_token=vk_token, vk_group=vk_group, vk_user_token=vk_user_token)
         try:
-            vk_diag = pub.diagnose_capabilities()
-            # Проверим реальную загрузку фото в messages upload server (без wall.post!)
-            sample_img = (config_path.parent / "branding" / "pinned_post.jpg").read_bytes()
-            up_srv = pub.call_api("photos.getMessagesUploadServer", {"peer_id": 0}, token=vk_token)
-            m_body, m_ct = encode_multipart_photo("photo", "test.jpg", "image/jpeg", sample_img)
-            m_req = urllib.request.Request(
-                str(up_srv["upload_url"]),
-                data=m_body,
-                headers={"Content-Type": m_ct, "User-Agent": "VKNewsAgent/1.0"},
-                method="POST",
-            )
-            with urllib.request.urlopen(m_req, timeout=30, context=pub.ssl_ctx) as m_resp:
-                up_res = json.loads(m_resp.read().decode("utf-8", errors="replace"))
-            saved_msg = pub.call_api(
-                "photos.saveMessagesPhoto",
-                {
-                    "photo": up_res.get("photo", ""),
-                    "server": up_res.get("server", ""),
-                    "hash": up_res.get("hash", ""),
-                },
-                token=vk_token,
-            )
-            if isinstance(saved_msg, list) and saved_msg:
-                p0 = saved_msg[0]
-                vk_diag["save_messages_photo_test"] = {
-                    "ok": True,
-                    "owner_id": p0.get("owner_id"),
-                    "id": p0.get("id"),
-                    "has_access_key": bool(p0.get("access_key")),
-                }
-            report["vk"] = vk_diag
+            report["vk"] = pub.diagnose_capabilities()
         except Exception as exc:  # noqa: BLE001
             report["vk"] = {"ok": False, "error": str(exc)[:300]}
 
-    # 3. Тест парсинга картинок с motor.ru и реальных RSS-лент
+    # 3. Тест парсинга картинок
     img_probe: dict[str, Any] = {}
-    try:
-        raw_b, ct, fin_u = fetch_url_bytes(
-            "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm"
-        )
-        img_probe["motor_http"] = {"bytes": len(raw_b), "ct": ct, "final_url": fin_u}
-    except Exception as exc:  # noqa: BLE001
-        img_probe["motor_http_error"] = str(exc)[:200]
-
-    for test_url in (
-        "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
-    ):
-        cand = NewsCandidate(
-            title="test",
-            url=test_url,
-            source_name="Motor.ru",
-            category="tip",
-            summary="test",
-        )
-        cand = enrich_candidate_from_webpage(cand)
-        prep = download_and_prepare_image(cand.image_urls, referer_url=cand.url) if cand.image_urls else None
-        img_probe["motor"] = {
-            "found_urls": cand.image_urls[:3],
-            "prepared": (
-                {"w": prep.width, "h": prep.height, "mime": prep.mime_type, "bytes": len(prep.data)}
-                if prep
-                else None
-            ),
-        }
+    cand = NewsCandidate(
+        title="test",
+        url="https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
+        source_name="Motor.ru",
+        category="tip",
+        summary="test",
+    )
+    cand = enrich_candidate_from_webpage(cand)
+    prep = download_and_prepare_image(cand.image_urls, referer_url=cand.url) if cand.image_urls else None
+    img_probe["motor"] = {
+        "found_urls": cand.image_urls[:3],
+        "prepared": (
+            {"w": prep.width, "h": prep.height, "mime": prep.mime_type, "bytes": len(prep.data)}
+            if prep
+            else None
+        ),
+    }
     report["image_probe"] = img_probe
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
