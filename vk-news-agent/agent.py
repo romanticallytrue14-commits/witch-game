@@ -160,6 +160,27 @@ def run_agent(
                 if recent_posts:
                     dedup.ingest_vk_wall_posts(recent_posts)
                     logger.info("Загружено %d последних постов со стены ВК для сверки дублей", len(recent_posts))
+                    # Если подключён пользовательский токен, а аватар или фото закрепа ещё не были догружены — догружаем автоматически!
+                    b_state_file = state_path.parent / "branding_state.json"
+                    if not dry_run and b_state_file.exists():
+                        try:
+                            b_st = json.loads(b_state_file.read_text(encoding="utf-8"))
+                        except (OSError, json.JSONDecodeError):
+                            b_st = {}
+                        if not b_st.get("avatar_uploaded") or not b_st.get("pinned_has_photo"):
+                            logger.info("Обнаружен пользовательский доступ ВК — автоматически догружаем аватар, баннер закрепа и фото постов!")
+                            import setup_group_profile
+
+                            setup_group_profile.apply_group_branding(
+                                config_path=config_path,
+                                branding_state_path=b_state_file,
+                                dry_run=False,
+                                update_info=True,
+                                upload_cover=False,
+                                upload_avatar=not bool(b_st.get("avatar_uploaded")),
+                                publish_pinned=not bool(b_st.get("pinned_has_photo")),
+                                backfill_photos=True,
+                            )
             except VKAPIError as exc:
                 logger.warning("Предварительная проверка стены пропущена: %s", exc)
 

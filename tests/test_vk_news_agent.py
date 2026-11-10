@@ -293,6 +293,12 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
         self.assertEqual(vk_publisher.parse_group_identifier("https://vk.ru/autoyar076"), (None, "autoyar076"))
         self.assertEqual(vk_publisher.parse_group_identifier("https://vk.com/club195214603"), (195214603, ""))
         self.assertEqual(vk_publisher.parse_group_identifier("-76000111"), (76000111, ""))
+        self.assertEqual(
+            vk_publisher.normalize_vk_token(
+                "https://oauth.vk.com/blank.html#access_token=vk1.a.TESTTOKEN123&expires_in=0&user_id=777"
+            ),
+            "vk1.a.TESTTOKEN123",
+        )
 
     def test_webp_to_jpeg_conversion_and_image_inspection(self) -> None:
         png_bytes = make_minimal_png(640, 400)

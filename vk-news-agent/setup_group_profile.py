@@ -229,6 +229,8 @@ def apply_group_branding(
         try:
             ok_av = pub.upload_group_avatar(avatar_img.data)
             if ok_av:
+                b_state["avatar_uploaded"] = True
+                save_branding_state(effective_b_state_path, b_state)
                 report_lines.append("- ✅ **Аватар сообщества (1024×1024)**: установлен")
             else:
                 report_lines.append(
