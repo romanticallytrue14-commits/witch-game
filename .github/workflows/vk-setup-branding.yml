@@ -1,9 +1,6 @@
 name: "АвтоТочка — Оформление группы ВК (в 1 клик)"
 
 on:
-  push:
-    branches:
-      - "arena/4e4089f3-witch-game"
   workflow_dispatch:
     inputs:
       dry_run:
