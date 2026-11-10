@@ -21,6 +21,7 @@ from ai_writer import (  # noqa: E402
     AIProviderError,
     TemplateFallbackClient,
     create_ai_client,
+    inspect_gigachat_key_shape,
     select_best_candidate_with_ai,
     write_evergreen_tip_post,
     write_news_post,
@@ -30,6 +31,7 @@ from news_fetcher import (  # noqa: E402
     NewsCandidate,
     collect_fresh_candidates,
     enrich_candidate_from_webpage,
+    fetch_url_bytes,
 )
 from vk_publisher import (  # noqa: E402
     VKAPIError,
@@ -380,7 +382,8 @@ def run_diagnostics(config_path: Path, report_path: Path) -> int:
             "VK_USER_TOKEN": bool(vk_user_token),
             "GIGACHAT_AUTH_KEY": bool((os.getenv("GIGACHAT_AUTH_KEY") or "").strip()),
             "YANDEX_API_KEY": bool((os.getenv("YANDEX_API_KEY") or "").strip()),
-        }
+        },
+        "gigachat_key_shape": inspect_gigachat_key_shape(os.getenv("GIGACHAT_AUTH_KEY") or ""),
     }
 
     # 1. Тест нейросети
@@ -397,16 +400,52 @@ def run_diagnostics(config_path: Path, report_path: Path) -> int:
     except Exception as exc:  # noqa: BLE001
         report["ai_test"] = {"ok": False, "error": str(exc)[:300]}
 
-    # 2. Тест ВК
+    # 2. Тест ВК + проверка saveMessagesPhoto (без публикации на стену)
     if vk_token:
         pub = VKPublisher(vk_token=vk_token, vk_group=vk_group, vk_user_token=vk_user_token)
         try:
-            report["vk"] = pub.diagnose_capabilities()
+            vk_diag = pub.diagnose_capabilities()
+            # Проверим реальную загрузку фото в messages upload server (без wall.post!)
+            sample_img = (config_path.parent / "branding" / "pinned_post.jpg").read_bytes()
+            up_srv = pub.call_api("photos.getMessagesUploadServer", {"peer_id": 0}, token=vk_token)
+            up_res = pub._multipart_upload(
+                str(up_srv["upload_url"]),
+                field_name="photo",
+                filename="test.jpg",
+                file_bytes=sample_img,
+                mime_type="image/jpeg",
+            )
+            saved_msg = pub.call_api(
+                "photos.saveMessagesPhoto",
+                {
+                    "photo": up_res.get("photo", ""),
+                    "server": up_res.get("server", ""),
+                    "hash": up_res.get("hash", ""),
+                },
+                token=vk_token,
+            )
+            if isinstance(saved_msg, list) and saved_msg:
+                p0 = saved_msg[0]
+                vk_diag["save_messages_photo_test"] = {
+                    "ok": True,
+                    "owner_id": p0.get("owner_id"),
+                    "id": p0.get("id"),
+                    "has_access_key": bool(p0.get("access_key")),
+                }
+            report["vk"] = vk_diag
         except Exception as exc:  # noqa: BLE001
             report["vk"] = {"ok": False, "error": str(exc)[:300]}
 
-    # 3. Тест парсинга картинок с motor.ru и kolesa.ru
+    # 3. Тест парсинга картинок с motor.ru и реальных RSS-лент
     img_probe: dict[str, Any] = {}
+    try:
+        raw_b, ct, fin_u = fetch_url_bytes(
+            "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm"
+        )
+        img_probe["motor_http"] = {"bytes": len(raw_b), "ct": ct, "final_url": fin_u}
+    except Exception as exc:  # noqa: BLE001
+        img_probe["motor_http_error"] = str(exc)[:200]
+
     for test_url in (
         "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
     ):

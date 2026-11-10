@@ -53,15 +53,22 @@ BAD_IMAGE_PATTERNS = (
 
 XML_ENCODING_RE = re.compile(rb'<\?xml[^>]*encoding=["\']([^"\']+)["\']', re.IGNORECASE)
 HTML_CHARSET_RE = re.compile(rb'charset=["\']?([a-zA-Z0-9_-]+)', re.IGNORECASE)
-IMG_SRC_RE = re.compile(r'<img[^>]+(?:data-src|src)=["\']([^"\']+)["\']', re.IGNORECASE)
+IMG_SRC_RE = re.compile(
+    r'<(?:img|source)\b[^>]*?\b(?:data-src|data-original|src|srcset)\s*=\s*(?:["\']([^"\']+)["\']|([^\s>"\']+))',
+    re.IGNORECASE,
+)
 OG_IMAGE_RE = re.compile(
-    r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)["\']'
-    r'|<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\']',
+    r'<meta\b[^>]*?\b(?:property|name|itemprop)\s*=\s*["\']?(?:og:image(?::secure_url|:url)?|vk:image|twitter:image(?::src)?|image)["\']?[^>]*?\bcontent\s*=\s*(?:["\']([^"\']+)["\']|([^\s>"\']+))'
+    r'|<meta\b[^>]*?\bcontent\s*=\s*(?:["\']([^"\']+)["\']|([^\s>"\']+))[^>]*?\b(?:property|name|itemprop)\s*=\s*["\']?(?:og:image(?::secure_url|:url)?|vk:image|twitter:image(?::src)?|image)["\']?',
+    re.IGNORECASE,
+)
+JSONLD_IMAGE_RE = re.compile(
+    r'"image"\s*:\s*(?:\[\s*)?(?:\{\s*[^}]*?"url"\s*:\s*"(https?:[^"]+)"|"(https?:[^"]+)")',
     re.IGNORECASE,
 )
 OG_DESC_RE = re.compile(
-    r'<meta[^>]+(?:property|name)=["\'](?:og:description|description)["\'][^>]+content=["\']([^"\']+)["\']'
-    r'|<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:description|description)["\']',
+    r'<meta\b[^>]*?\b(?:property|name)\s*=\s*["\']?(?:og:description|description)["\']?[^>]*?\bcontent\s*=\s*["\']([^"\']+)["\']'
+    r'|<meta\b[^>]*?\bcontent\s*=\s*["\']([^"\']+)["\'][^>]*?\b(?:property|name)\s*=\s*["\']?(?:og:description|description)["\']?',
     re.IGNORECASE,
 )
 PARAGRAPH_RE = re.compile(r"<p(?:\s[^>]*)?>(.*?)</p>", re.IGNORECASE | re.DOTALL)
@@ -310,16 +317,19 @@ def parse_feed_xml(xml_text: str, source_cfg: dict[str, Any]) -> list[NewsCandid
                 sub_source_name = text_val
             elif ctag == "category" and text_val:
                 categories.append(text_val)
-            elif ctag == "enclosure":
-                enc_url = (child.attrib.get("url") or "").strip()
-                enc_type = (child.attrib.get("type") or "").lower()
+        # Ищем вложения на любой глубине внутри <item>/<entry> (включая <media:group><media:content .../>)
+        for sub in node.iter():
+            stag = _local_tag(sub.tag)
+            if stag == "enclosure":
+                enc_url = (sub.attrib.get("url") or "").strip()
+                enc_type = (sub.attrib.get("type") or "").lower()
                 if enc_url and (not enc_type or enc_type.startswith("image/")):
                     raw_images.append(enc_url)
-            elif ctag in {"thumbnail", "content"} and child.attrib.get("url"):
-                media_url = (child.attrib.get("url") or "").strip()
-                medium = (child.attrib.get("medium") or "").lower()
-                mtype = (child.attrib.get("type") or "").lower()
-                if not mtype and not medium or medium == "image" or mtype.startswith("image/"):
+            elif stag in {"thumbnail", "content"} and sub.attrib.get("url"):
+                media_url = (sub.attrib.get("url") or "").strip()
+                medium = (sub.attrib.get("medium") or "").lower()
+                mtype = (sub.attrib.get("type") or "").lower()
+                if (not mtype and not medium) or medium == "image" or mtype.startswith("image/"):
                     raw_images.append(media_url)
 
         if not title or not link:
@@ -328,7 +338,12 @@ def parse_feed_xml(xml_text: str, source_cfg: dict[str, Any]) -> list[NewsCandid
         # Достаём картинки из HTML-блоков
         for html_chunk in (content_encoded_html, description_html):
             if html_chunk:
-                raw_images.extend(IMG_SRC_RE.findall(html_chunk))
+                for m_img in IMG_SRC_RE.finditer(html_chunk):
+                    raw_src = (m_img.group(1) or m_img.group(2) or "").strip()
+                    if raw_src:
+                        first_part = raw_src.split(",")[0].strip().split(" ")[0].strip()
+                        if first_part:
+                            raw_images.append(first_part)
 
         clean_desc = clean_html_to_text(description_html)
         clean_full = clean_html_to_text(content_encoded_html)
@@ -494,25 +509,38 @@ def enrich_candidate_from_webpage(item: NewsCandidate, timeout: int = 12) -> New
 
     item.url = final_url
     page_html = decode_http_bytes(raw_bytes, content_type)
+    # Вырезаем гигантские inline-<style>, чтобы поиск мета-тегов и иллюстраций работал по всей странице мгновенно
+    html_no_style = re.sub(r"<style\b[^>]*>.*?</style>", " ", page_html, flags=re.I | re.S)
 
     if needs_image:
         found_og: list[str] = []
-        for m in OG_IMAGE_RE.finditer(page_html[:60000]):
-            img = m.group(1) or m.group(2)
+        for m in OG_IMAGE_RE.finditer(html_no_style):
+            img = next((g for g in m.groups() if g), "")
+            if img:
+                found_og.append(img)
+        for m_ld in JSONLD_IMAGE_RE.finditer(html_no_style):
+            img = (m_ld.group(1) or m_ld.group(2) or "").replace("\\/", "/")
             if img:
                 found_og.append(img)
         if not found_og:
-            found_og.extend(IMG_SRC_RE.findall(page_html[:80000]))
+            for m_img in IMG_SRC_RE.finditer(html_no_style):
+                raw_src = (m_img.group(1) or m_img.group(2) or "").strip()
+                if not raw_src:
+                    continue
+                # Для srcset="url1 1x, url2 2x" берём первый валидный URL
+                first_part = raw_src.split(",")[0].strip().split(" ")[0].strip()
+                if first_part:
+                    found_og.append(first_part)
         item.image_urls = prioritize_image_urls(found_og, base_url=final_url)
 
     if needs_text:
         meta_desc = ""
-        m_desc = OG_DESC_RE.search(page_html[:50000])
+        m_desc = OG_DESC_RE.search(html_no_style)
         if m_desc:
             meta_desc = clean_html_to_text(m_desc.group(1) or m_desc.group(2) or "")
 
         paragraphs: list[str] = []
-        for p_match in PARAGRAPH_RE.finditer(page_html[:180000]):
+        for p_match in PARAGRAPH_RE.finditer(html_no_style):
             p_txt = clean_html_to_text(p_match.group(1))
             if len(p_txt) < 45:
                 continue

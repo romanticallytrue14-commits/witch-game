@@ -83,14 +83,65 @@ def _http_post_json(
     raise last_err or AIProviderError("Неизвестная ошибка запроса к ИИ API")
 
 
+def inspect_gigachat_key_shape(raw_key: str) -> dict[str, Any]:
+    """Возвращает ТОЛЬКО безопасные структурные метаданные ключа (без единого символа самого ключа)."""
+    s = raw_key or ""
+    stripped = s.strip().strip("\"'`").strip()
+    lower = stripped.lower()
+    had_auth_header = lower.startswith("authorization:")
+    if had_auth_header:
+        stripped = stripped.split(":", 1)[1].strip().strip("\"'`").strip()
+        lower = stripped.lower()
+    had_basic = lower.startswith("basic ")
+    had_bearer = lower.startswith("bearer ")
+    if had_basic:
+        stripped = stripped[6:].strip()
+    elif had_bearer:
+        stripped = stripped[7:].strip()
+
+    is_uuid = bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", stripped))
+    is_colon_pair = bool(":" in stripped and " " not in stripped)
+    b64_ok = False
+    b64_decoded_len = 0
+    b64_has_colon = False
+    try:
+        compact = re.sub(r"\s+", "", stripped)
+        padded = compact + ("=" * ((4 - len(compact) % 4) % 4))
+        dec = base64.b64decode(padded, validate=True)
+        b64_ok = True
+        b64_decoded_len = len(dec)
+        dec_txt = dec.decode("utf-8", errors="ignore")
+        b64_has_colon = ":" in dec_txt
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {
+        "raw_len": len(s),
+        "cleaned_len": len(stripped),
+        "had_auth_header": had_auth_header,
+        "had_basic_prefix": had_basic,
+        "had_bearer_prefix": had_bearer,
+        "is_single_uuid": is_uuid,
+        "is_raw_colon_pair": is_colon_pair,
+        "is_valid_base64": b64_ok,
+        "base64_decoded_len": b64_decoded_len,
+        "base64_decoded_has_colon": b64_has_colon,
+        "looks_like_jwt": stripped.count(".") == 2 and len(stripped) > 80,
+    }
+
+
 def normalize_gigachat_auth_key(raw_key: str) -> str:
-    """Принимает Basic-токен, готовый Base64 ключ или пару client_id:client_secret."""
-    cleaned = raw_key.strip()
+    """Принимает Basic-токен, Authorization: Basic ..., готовый Base64 ключ или client_id:client_secret."""
+    cleaned = (raw_key or "").strip().strip("\"'`").strip()
+    if cleaned.lower().startswith("authorization:"):
+        cleaned = cleaned.split(":", 1)[1].strip().strip("\"'`").strip()
     if cleaned.lower().startswith("basic "):
-        cleaned = cleaned[6:].strip()
-    if ":" in cleaned:
+        cleaned = cleaned[6:].strip().strip("\"'`").strip()
+    elif cleaned.lower().startswith("bearer "):
+        cleaned = cleaned[7:].strip().strip("\"'`").strip()
+    if ":" in cleaned and " " not in cleaned and not cleaned.lower().startswith("http"):
         return base64.b64encode(cleaned.encode("utf-8")).decode("ascii")
-    return cleaned
+    return re.sub(r"\s+", "", cleaned)
 
 
 class GigaChatClient:
@@ -99,15 +150,25 @@ class GigaChatClient:
     name = "GigaChat"
 
     def __init__(self, auth_key: str, cfg: dict[str, Any]) -> None:
+        self.raw_key = auth_key
         self.auth_key = normalize_gigachat_auth_key(auth_key)
         self.scope = os.getenv("GIGACHAT_SCOPE") or str(cfg.get("scope", "GIGACHAT_API_PERS"))
         self.model = os.getenv("GIGACHAT_MODEL") or str(cfg.get("model", "GigaChat"))
         self.oauth_url = os.getenv("GIGACHAT_OAUTH_URL") or str(
             cfg.get("oauth_url", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth")
         )
-        self.chat_url = os.getenv("GIGACHAT_CHAT_URL") or str(
-            cfg.get("chat_url", "https://gigachat.devices.sberbank.ru/api/v1/chat/completions")
-        )
+        self.chat_urls = [
+            u
+            for u in [
+                os.getenv("GIGACHAT_CHAT_URL") or "",
+                str(cfg.get("chat_url", "")),
+                "https://api.giga.chat/v1/chat/completions",
+                "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
+            ]
+            if u
+        ]
+        # Убираем дубли с сохранением порядка
+        self.chat_urls = list(dict.fromkeys(self.chat_urls))
         self.ssl_ctx = self._build_ssl_context(cfg)
         self._access_token: str = ""
         self._token_expires_at: float = 0.0
@@ -134,14 +195,39 @@ class GigaChatClient:
         if self._access_token and now < self._token_expires_at - 60:
             return self._access_token
 
-        body = f"scope={self.scope}".encode("utf-8")
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
-            "RqUID": str(uuid.uuid4()),
-            "Authorization": f"Basic {self.auth_key}",
-        }
-        data = _http_post_json(self.oauth_url, headers, body, ssl_ctx=self.ssl_ctx, timeout=30)
+        # Если пользователь передал уже готовый JWT access_token
+        shape = inspect_gigachat_key_shape(self.raw_key)
+        if shape["looks_like_jwt"]:
+            self._access_token = self.auth_key
+            self._token_expires_at = now + 900.0
+            return self._access_token
+
+        scopes_to_try = list(
+            dict.fromkeys([self.scope, "GIGACHAT_API_PERS", "GIGACHAT_API_B2B", "GIGACHAT_API_CORP"])
+        )
+        last_err: Exception | None = None
+        data: dict[str, Any] = {}
+        for sc in scopes_to_try:
+            body = f"scope={sc}".encode("utf-8")
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+                "RqUID": str(uuid.uuid4()),
+                "Authorization": f"Basic {self.auth_key}",
+            }
+            try:
+                data = _http_post_json(self.oauth_url, headers, body, ssl_ctx=self.ssl_ctx, timeout=30, retries=1)
+                self.scope = sc
+                last_err = None
+                break
+            except AIProviderError as exc:
+                last_err = exc
+                if "header is incorrect" in str(exc):
+                    break
+                continue
+        if last_err is not None:
+            raise last_err
+
         token = str(data.get("access_token", "")).strip()
         if not token:
             raise AIProviderError(f"GigaChat OAuth не вернул access_token: {data}")
@@ -171,13 +257,26 @@ class GigaChatClient:
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
         }
-        data = _http_post_json(
-            self.chat_url,
-            headers,
-            json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            ssl_ctx=self.ssl_ctx,
-            timeout=50,
-        )
+        body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        last_err: Exception | None = None
+        data: dict[str, Any] = {}
+        for chat_url in self.chat_urls:
+            try:
+                data = _http_post_json(
+                    chat_url,
+                    headers,
+                    body_bytes,
+                    ssl_ctx=self.ssl_ctx,
+                    timeout=50,
+                    retries=1,
+                )
+                last_err = None
+                break
+            except AIProviderError as exc:
+                last_err = exc
+                continue
+        if last_err is not None:
+            raise last_err
         choices = data.get("choices") or []
         if not choices:
             raise AIProviderError(f"Пустой ответ GigaChat: {data}")
