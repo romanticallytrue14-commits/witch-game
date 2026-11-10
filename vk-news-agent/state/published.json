@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 1,
+  "total_posts": 2,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -21,6 +21,22 @@
       "category": "local_76",
       "vk_post_id": 178,
       "published_at": "2026-11-10T14:32:34.045547+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/vyyasnilos-pochemu-mashiny-v-kitae-deshevle-chem-v-rossii-09-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/vyyasnilos-pochemu-mashiny-v-kitae-deshevle-chem-v-rossii-09-11-2026.htm",
+      "guid": "https://motor.ru/news/vyyasnilos-pochemu-mashiny-v-kitae-deshevle-chem-v-rossii-09-11-2026.htm",
+      "title": "Выяснилось, почему машины в Китае дешевле, чем в России",
+      "tokens": [
+        "выяснил",
+        "маши",
+        "кита",
+        "дешевл",
+        "росси"
+      ],
+      "category": "news",
+      "vk_post_id": 179,
+      "published_at": "2026-11-10T16:56:55.605245+00:00"
     }
   ]
 }
