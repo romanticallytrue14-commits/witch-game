@@ -1,9 +1,6 @@
 name: "АвтоТочка — Новостной ИИ-агент ВК"
 
 on:
-  push:
-    branches:
-      - arena/eb9ae35d-witch-game
   schedule:
     # 3 публикации в день по времени Ярославля / МСК (UTC+3): ~08:15, ~13:15 и ~19:15
     - cron: "15 5 * * *"
@@ -104,26 +101,11 @@ jobs:
           fi
 
           EXTRA_ARGS=(--mode "${MODE}" --max-posts "${MAX_POSTS}")
-          if [ "${{ github.event_name }}" = "push" ]; then
-            mkdir -p vk-news-agent/state/_ai_preview
-            python3 vk-news-agent/agent.py --dry-run --mode auto --max-posts 1 --save-preview-dir vk-news-agent/state/_ai_preview 2>&1 | tee vk-news-agent/state/_ai_preview/run.log
-          else
-            if [ "${DRY_RUN}" = "true" ]; then
-              EXTRA_ARGS+=(--dry-run)
-            fi
-            python3 vk-news-agent/agent.py "${EXTRA_ARGS[@]}"
+          if [ "${DRY_RUN}" = "true" ]; then
+            EXTRA_ARGS+=(--dry-run)
           fi
 
-      - name: Сохранение тестового превью ИИ (временная проверка ветки)
-        if: always() && github.event_name == 'push'
-        run: |
-          if [ -d vk-news-agent/state/_ai_preview ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add vk-news-agent/state/_ai_preview
-            git commit -m "chore(preview): live GigaChat text2image + proofread preview [skip ci]" || true
-            git push origin HEAD:arena/eb9ae35d-witch-game || true
-          fi
+          python3 vk-news-agent/agent.py "${EXTRA_ARGS[@]}"
 
       - name: Сохранение истории опубликованных новостей (защита от повторов)
         if: success() && inputs.dry_run != true && github.event.inputs.dry_run != 'true'
