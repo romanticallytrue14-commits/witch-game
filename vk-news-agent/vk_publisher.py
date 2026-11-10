@@ -653,7 +653,52 @@ class VKPublisher:
         logger.info("Аватар сообщества успешно установлен в группу ID %d!", group_id)
         return True
 
+    def diagnose_capabilities(self) -> dict[str, Any]:
+        """Безопасная проверка прав токена ВК (без публикации на стену и без вывода самих ключей)."""
+        diag: dict[str, Any] = {
+            "has_vk_token": bool(self.vk_token),
+            "has_vk_user_token": bool(self.vk_user_token),
+            "vk_token_prefix": self.vk_token[:6] if self.vk_token else "",
+        }
+        group_id = self.resolve_group_id()
+        diag["group_id"] = group_id
+
+        # 1. Проверяем тип основного токена: пользователь или сообщество
+        try:
+            users = self.call_api("users.get", {}, token=self.vk_token)
+            diag["vk_token_is_user"] = bool(isinstance(users, list) and len(users) > 0)
+        except VKAPIError as exc:
+            diag["vk_token_is_user"] = False
+            diag["users_get_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        try:
+            perms = self.call_api("groups.getTokenPermissions", {}, token=self.vk_token)
+            diag["community_token_permissions"] = perms
+        except VKAPIError as exc:
+            diag["community_token_permissions_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        photo_token = self.vk_user_token or self.vk_token
+
+        # 2. Проверяем доступность различных методов загрузки медиа
+        probes = [
+            ("photos.getWallUploadServer", {"group_id": group_id}, photo_token),
+            ("photos.getOwnerPhotoUploadServer", {"owner_id": -group_id}, photo_token),
+            ("photos.getOwnerCoverPhotoUploadServer", {"group_id": group_id, "crop_x2": 1920, "crop_y2": 768}, self.vk_token),
+            ("photos.getMessagesUploadServer", {"peer_id": 0}, self.vk_token),
+            ("docs.getWallUploadServer", {"group_id": group_id}, self.vk_token),
+        ]
+        methods_status: dict[str, Any] = {}
+        for m_name, m_params, m_tok in probes:
+            try:
+                res = self.call_api(m_name, m_params, token=m_tok)
+                methods_status[m_name] = {"ok": bool(res and res.get("upload_url"))}
+            except VKAPIError as exc:
+                methods_status[m_name] = {"ok": False, "code": exc.code, "msg": exc.vk_message}
+        diag["methods"] = methods_status
+        return diag
+
     def pin_wall_post(self, post_id: int) -> bool:
+
         """Закрепляет запись вверху стены сообщества."""
         if post_id <= 0:
             return False

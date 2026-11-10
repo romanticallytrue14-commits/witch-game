@@ -352,11 +352,86 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Требовать строго внешний ключ GigaChat / YandexGPT (останавливать запуск при его отсутствии)",
     )
     parser.add_argument(
+        "--diagnose",
+        default=None,
+        help="Безопасная проверка прав токенов ВК и ИИ с сохранением отчёта в JSON (без публикации)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Подробное логирование отладки",
     )
     return parser
+
+
+def run_diagnostics(config_path: Path, report_path: Path) -> int:
+    config = load_config(config_path)
+    group_cfg = config.get("group", {})
+    vk_group = (
+        os.getenv("VK_GROUP")
+        or str(group_cfg.get("screen_name") or group_cfg.get("url") or "autoyar076")
+    ).strip()
+    vk_token = (os.getenv("VK_TOKEN") or "").strip()
+    vk_user_token = (os.getenv("VK_USER_TOKEN") or "").strip()
+
+    report: dict[str, Any] = {
+        "env_present": {
+            "VK_TOKEN": bool(vk_token),
+            "VK_USER_TOKEN": bool(vk_user_token),
+            "GIGACHAT_AUTH_KEY": bool((os.getenv("GIGACHAT_AUTH_KEY") or "").strip()),
+            "YANDEX_API_KEY": bool((os.getenv("YANDEX_API_KEY") or "").strip()),
+        }
+    }
+
+    # 1. Тест нейросети
+    try:
+        ai_client = create_ai_client(config, allow_template_fallback=True)
+        report["ai_client"] = ai_client.name
+        sample = ai_client.generate(
+            "Ответь одним коротким предложением на русском.",
+            "Напиши: Связь с нейросетью установлена.",
+            temperature=0.2,
+            max_tokens=40,
+        )
+        report["ai_test"] = {"ok": True, "reply_preview": sample[:100]}
+    except Exception as exc:  # noqa: BLE001
+        report["ai_test"] = {"ok": False, "error": str(exc)[:300]}
+
+    # 2. Тест ВК
+    if vk_token:
+        pub = VKPublisher(vk_token=vk_token, vk_group=vk_group, vk_user_token=vk_user_token)
+        try:
+            report["vk"] = pub.diagnose_capabilities()
+        except Exception as exc:  # noqa: BLE001
+            report["vk"] = {"ok": False, "error": str(exc)[:300]}
+
+    # 3. Тест парсинга картинок с motor.ru и kolesa.ru
+    img_probe: dict[str, Any] = {}
+    for test_url in (
+        "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
+    ):
+        cand = NewsCandidate(
+            title="test",
+            url=test_url,
+            source_name="Motor.ru",
+            category="tip",
+            summary="test",
+        )
+        cand = enrich_candidate_from_webpage(cand)
+        prep = download_and_prepare_image(cand.image_urls, referer_url=cand.url) if cand.image_urls else None
+        img_probe["motor"] = {
+            "found_urls": cand.image_urls[:3],
+            "prepared": (
+                {"w": prep.width, "h": prep.height, "mime": prep.mime_type, "bytes": len(prep.data)}
+                if prep
+                else None
+            ),
+        }
+    report["image_probe"] = img_probe
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -366,6 +441,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+    if args.diagnose:
+        return run_diagnostics(Path(args.config), Path(args.diagnose))
     try:
         return run_agent(
             config_path=Path(args.config),
