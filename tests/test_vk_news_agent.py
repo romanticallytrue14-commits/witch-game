@@ -392,7 +392,8 @@ class AIWriterAndFormattingTests(unittest.TestCase):
         file_calls = [c for c in calls if "/files/f123-456-uuid/content" in c[0]]
         self.assertEqual(len(file_calls), 1)
         self.assertEqual(file_calls[0][1]["authorization"], "Bearer giga-img-tok")
-        self.assertEqual(file_calls[0][1]["x-client-id"], "11111111-2222-3333-4444-555555555555")
+        # По умолчанию X-Client-ID не отправляется, чтобы совпадать с запросом /chat/completions (без 403 Forbidden)
+        self.assertNotIn("x-client-id", file_calls[0][1])
         img_prompt = ai_writer.build_ai_image_prompt(
             ai_writer.TemplateFallbackClient(),
             title=cand.title,

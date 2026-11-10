@@ -168,7 +168,6 @@ class GigaChatClient:
                 os.getenv("GIGACHAT_CHAT_URL") or "",
                 str(cfg.get("chat_url", "")),
                 "https://api.giga.chat/v1/chat/completions",
-                "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
             ]
             if u
         ]
@@ -278,8 +277,8 @@ class GigaChatClient:
                     headers,
                     body_bytes,
                     ssl_ctx=self.ssl_ctx,
-                    timeout=50,
-                    retries=1,
+                    timeout=55,
+                    retries=2,
                 )
                 last_err = None
                 break
@@ -309,40 +308,66 @@ class GigaChatClient:
             pass
         return ""
 
-    def _download_file_bytes(self, api_base: str, file_id: str, token: str) -> bytes:
-        """Скачивает сгенерированное GigaChat изображение через GET /files/{file_id}/content."""
+    def _download_file_bytes(
+        self,
+        api_base: str,
+        file_id: str,
+        token: str,
+        x_client_id: str = "",
+    ) -> bytes:
+        """Скачивает сгенерированное GigaChat изображение через GET /files/{file_id}/content.
+
+        По документации Сбера заголовок X-Client-ID при скачивании должен ТОЧНО совпадать
+        с тем, передавался ли X-Client-ID в запросе генерации /chat/completions (иначе HTTP 403).
+        """
         file_url = f"{api_base.rstrip('/')}/files/{file_id}/content"
-        headers: dict[str, str] = {
-            "Accept": "application/jpg",
-            "Authorization": f"Bearer {token}",
-        }
-        cid = self._extract_client_id()
-        if cid:
-            headers["X-Client-ID"] = cid
+        header_variants: list[dict[str, str]] = [
+            {
+                "Accept": "application/jpg",
+                "Authorization": f"Bearer {token}",
+                **({"X-Client-ID": x_client_id} if x_client_id else {}),
+            }
+        ]
+        fallback_cid = self._extract_client_id()
+        if not x_client_id and fallback_cid:
+            header_variants.append(
+                {
+                    "Accept": "application/jpg",
+                    "Authorization": f"Bearer {token}",
+                    "X-Client-ID": fallback_cid,
+                }
+            )
 
         last_err: Exception | None = None
-        for attempt in range(3):
-            req = urllib.request.Request(file_url, headers=headers, method="GET")
-            try:
-                with urllib.request.urlopen(req, timeout=60, context=self.ssl_ctx) as resp:
-                    raw = resp.read()
-                if raw.startswith((b"\xff\xd8", b"\x89PNG", b"RIFF")):
-                    return raw
-                # На случай обёртки JSON {"content": "<base64>"}
+        for hdrs in header_variants:
+            for attempt in range(2):
+                req = urllib.request.Request(file_url, headers=hdrs, method="GET")
                 try:
-                    as_json = json.loads(raw.decode("utf-8", errors="ignore"))
-                    if isinstance(as_json, dict) and as_json.get("content"):
-                        return base64.b64decode(str(as_json["content"]))
-                except Exception:  # noqa: BLE001
-                    pass
-                if len(raw) > 2048:
-                    return raw
-                raise AIProviderError(f"Слишком маленький ответ файла GigaChat ({len(raw)} байт)")
-            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as exc:
-                last_err = exc
-                if attempt < 2:
-                    time.sleep(2.0 * (attempt + 1))
-                    continue
+                    with urllib.request.urlopen(req, timeout=60, context=self.ssl_ctx) as resp:
+                        raw = resp.read()
+                    if raw.startswith((b"\xff\xd8", b"\x89PNG", b"RIFF")):
+                        return raw
+                    try:
+                        as_json = json.loads(raw.decode("utf-8", errors="ignore"))
+                        if isinstance(as_json, dict) and as_json.get("content"):
+                            return base64.b64decode(str(as_json["content"]))
+                    except Exception:  # noqa: BLE001
+                        pass
+                    if len(raw) > 2048:
+                        return raw
+                    raise AIProviderError(f"Слишком маленький ответ файла GigaChat ({len(raw)} байт)")
+                except urllib.error.HTTPError as exc:
+                    last_err = exc
+                    if exc.code == 403:
+                        break  # пробуем следующий вариант заголовка X-Client-ID
+                    if attempt < 1:
+                        time.sleep(2.0)
+                        continue
+                except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                    last_err = exc
+                    if attempt < 1:
+                        time.sleep(2.0)
+                        continue
         raise AIProviderError(f"Не удалось скачать изображение {file_id} из GigaChat: {last_err}")
 
     def generate_image_bytes(self, prompt: str, system_prompt: str = "") -> tuple[bytes, str]:
@@ -865,7 +890,9 @@ def proofread_vk_post_with_ai(
         "1. Орфография, пунктуация, падежи и склонение числительных (например: «до 2 млн рублей», «по обеим полосам»).\n"
         "2. Автомобильная грамотность: никаких «одеть резину» (верно: «поставить шины» / «переобуть машину»), "
         "никаких речевых повторов в соседних предложениях и канцелярских штампов.\n"
-        "3. Точность фактов: сверь цены, даты, мощности и названия моделей с исходной фактурой (ничего не додумывай).\n"
+        "3. Точность фактов: сверь цены, даты, мощности и названия моделей с исходной фактурой. "
+        "УДАЛИ любые выдуманные байки про «моего знакомого / соседа / друга», которых нет в исходной новости — "
+        "оставляй только остроумные общие водительские наблюдения по делу.\n"
         "4. Строго без Markdown (**звёздочек**, ### заголовков), без хештегов и без твоих комментариев от лица редактора.\n"
         "Верни ТОЛЬКО вычитанный текст поста."
     )
@@ -990,8 +1017,8 @@ def write_news_post(
         "СТИЛЬ И ЮМОР:\n"
         "- Пиши живо, по делу, безупречно грамотным русским языком без канцелярита и штампов.\n"
         "- Добавь 1–2 лёгких, умных и добрых ироничных замечания из реальной жизни российского автомобилиста "
-        "(без клоунады, бородатых анекдотов и подросткового сленга). ВАЖНО: если тема касается безопасности или "
-        "экстренных перекрытий — пиши спокойно и уважительно без шуток.\n"
+        "(остроумное наблюдение про водительский быт — без клоунады, сленга и СТРОГО БЕЗ выдуманных историй про «знакомого/соседа»). "
+        "ВАЖНО: если тема касается ДТП или экстренных перекрытий — пиши спокойно и уважительно без шуток.\n"
         "СТРОГИЕ ПРАВИЛА БЕЗ ОШИБОК:\n"
         "1. НИКОГДА не используй Markdown: никаких звёздочек **жирный**, решёток ### для заголовков и [ссылок](url).\n"
         "2. Строго проверяй орфографию, пунктуацию, падежи и склонение числительных.\n"
