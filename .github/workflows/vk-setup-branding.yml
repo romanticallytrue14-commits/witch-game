@@ -1,0 +1,70 @@
+name: "АвтоТочка — Оформление группы ВК (в 1 клик)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Только проверка (без изменений в группе ВК)"
+        required: false
+        type: boolean
+        default: false
+      apply_info:
+        description: "Обновить название «АвтоТочка», статус и описание группы"
+        required: false
+        type: boolean
+        default: true
+      apply_cover:
+        description: "Установить обложку (шапку 1920×768)"
+        required: false
+        type: boolean
+        default: true
+      apply_avatar:
+        description: "Установить круглый аватар-логотип (1024×1024)"
+        required: false
+        type: boolean
+        default: true
+      apply_pinned:
+        description: "Опубликовать и закрепить приветственный пост с баннером"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  setup-branding:
+    name: "Установка оформления «АвтоТочка» в vk.ru/autoyar076"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      VK_TOKEN: ${{ secrets.VK_TOKEN || secrets.VK_ACCESS_TOKEN || secrets.VK_API_TOKEN || secrets.TOKEN }}
+      VK_USER_TOKEN: ${{ secrets.VK_USER_TOKEN }}
+      VK_GROUP: ${{ secrets.VK_GROUP }}
+
+    steps:
+      - name: Получение кода и графики оформления
+        uses: actions/checkout@v4
+
+      - name: Настройка Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Применение оформления сообщества «АвтоТочка»
+        run: |
+          ARGS=()
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          if [ "${{ inputs.apply_info }}" = "false" ]; then
+            ARGS+=(--skip-info)
+          fi
+          if [ "${{ inputs.apply_cover }}" = "false" ]; then
+            ARGS+=(--skip-cover)
+          fi
+          if [ "${{ inputs.apply_avatar }}" = "false" ]; then
+            ARGS+=(--skip-avatar)
+          fi
+          if [ "${{ inputs.apply_pinned }}" = "false" ]; then
+            ARGS+=(--skip-pinned)
+          fi
+          python3 vk-news-agent/setup_group_profile.py "${ARGS[@]}"
