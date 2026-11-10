@@ -695,6 +695,46 @@ class VKPublisher:
             except VKAPIError as exc:
                 methods_status[m_name] = {"ok": False, "code": exc.code, "msg": exc.vk_message}
         diag["methods"] = methods_status
+
+        # 3. Текущее состояние группы и последних постов (типы вложений, закреп, обложка, аватар)
+        try:
+            grp = self.call_api(
+                "groups.getById",
+                {"group_id": str(group_id), "fields": "cover,description,status,photo_200,has_photo"},
+                token=self.vk_token,
+            )
+            groups_list = grp.get("groups") if isinstance(grp, dict) else grp
+            if isinstance(groups_list, list) and groups_list:
+                g0 = groups_list[0]
+                diag["group_state"] = {
+                    "name": g0.get("name"),
+                    "status": g0.get("status"),
+                    "has_photo": g0.get("has_photo"),
+                    "photo_200": g0.get("photo_200"),
+                    "cover_enabled": (g0.get("cover") or {}).get("enabled"),
+                }
+        except VKAPIError as exc:
+            diag["group_state_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        try:
+            wall = self.call_api(
+                "wall.get",
+                {"owner_id": -group_id, "count": 5},
+                token=photo_token,
+            )
+            items = (wall or {}).get("items") or []
+            diag["recent_wall"] = [
+                {
+                    "id": it.get("id"),
+                    "is_pinned": it.get("is_pinned"),
+                    "text_head": (it.get("text") or "")[:60],
+                    "attachments": [(a.get("type") or "") for a in (it.get("attachments") or [])],
+                }
+                for it in items
+            ]
+        except VKAPIError as exc:
+            diag["recent_wall_error"] = {"code": exc.code, "msg": exc.vk_message}
+
         return diag
 
     def pin_wall_post(self, post_id: int) -> bool:

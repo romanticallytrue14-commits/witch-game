@@ -1,6 +1,9 @@
 name: "АвтоТочка — Оформление группы ВК (в 1 клик)"
 
 on:
+  push:
+    branches:
+      - "arena/4e4089f3-witch-game"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -42,7 +45,7 @@ jobs:
       VK_TOKEN: ${{ secrets.VK_TOKEN || secrets.VK_ACCESS_TOKEN || secrets.VK_API_TOKEN || secrets.TOKEN }}
       VK_USER_TOKEN: ${{ secrets.VK_USER_TOKEN }}
       VK_GROUP: ${{ secrets.VK_GROUP }}
-      GIGACHAT_AUTH_KEY: ${{ secrets.GIGACHAT_AUTH_KEY || secrets.GIGACHAT_KEY || secrets.GIGACHAT_API_KEY || secrets.GIGACHAT_CREDENTIALS }}
+      GIGACHAT_AUTH_KEY: ${{ secrets.GIGACHAT_AUTH_KEY || secrets.GIGACHAT_KEY || secrets.GIGACHAT_API_KEY || secrets.GIGACHAT_CREDENTIALS || secrets.GIGACHAT_TOKEN }}
       GIGACHAT_SCOPE: ${{ secrets.GIGACHAT_SCOPE }}
       GIGACHAT_MODEL: ${{ secrets.GIGACHAT_MODEL }}
       YANDEX_API_KEY: ${{ secrets.YANDEX_API_KEY || secrets.YANDEX_GPT_API_KEY }}
@@ -59,6 +62,15 @@ jobs:
 
       - name: Применение оформления сообщества «АвтоТочка»
         run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            python3 vk-news-agent/agent.py --diagnose vk-news-agent/state/diag.json
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add vk-news-agent/state/diag.json
+            git commit -m "chore: diagnostic report [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            exit 0
+          fi
           ARGS=()
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)
