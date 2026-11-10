@@ -27,6 +27,7 @@
     "min_relevance_score": 12,
     "include_external_url_in_text": false,
     "fallback_link_attachment_if_no_photo": false,
+    "image_mode": "ai_only",
     "use_branded_card_if_no_source_photo": true,
     "mention_source_name": true,
     "wall_dedup_check_count": 30,
@@ -62,11 +63,14 @@
     "temperature": 0.65,
     "max_tokens": 1200,
     "smart_candidate_pick": true,
+    "proofread_posts": true,
+    "generate_images": true,
+    "humor_style": "light_irony",
     "gigachat": {
       "scope": "GIGACHAT_API_PERS",
       "model": "GigaChat",
       "oauth_url": "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
-      "chat_url": "https://api.giga.chat/v1/chat/completions",
+      "chat_url": "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
       "verify_ssl": false
     },
     "yandexgpt": {

@@ -22,6 +22,7 @@ from ai_writer import (  # noqa: E402
     AIProviderError,
     TemplateFallbackClient,
     create_ai_client,
+    generate_ai_post_illustration,
     inspect_gigachat_key_shape,
     select_best_candidate_with_ai,
     write_evergreen_tip_post,
@@ -38,6 +39,7 @@ from vk_publisher import (  # noqa: E402
     PreparedImage,
     VKAPIError,
     VKPublisher,
+    convert_webp_to_jpeg,
     download_and_prepare_image,
     inspect_image_dimensions,
 )
@@ -51,6 +53,69 @@ def load_config(config_path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Некорректный формат конфигурации: {config_path}")
     return data
+
+
+def prepare_ai_image_for_post(
+    ai_client: Any,
+    *,
+    title: str,
+    post_text: str,
+    category: str,
+    config: dict[str, Any],
+) -> PreparedImage | None:
+    """Генерирует собственную иллюстрацию через ИИ и проверяет её формат/разрешение для ВК."""
+    try:
+        res = generate_ai_post_illustration(
+            ai_client,
+            title=title,
+            post_text=post_text,
+            category=category,
+            config=config,
+        )
+    except AIProviderError as exc:
+        logger.warning("Генерация ИИ-картинки временно недоступна (%s) — используем фирменную карточку рубрики.", exc)
+        return None
+
+    if res is None:
+        return None
+
+    raw_bytes, source_tag = res
+    info = inspect_image_dimensions(raw_bytes)
+    if info is None:
+        logger.warning("ИИ вернул нераспознанный формат изображения (%d байт) — берём карточку рубрики.", len(raw_bytes))
+        return None
+
+    fmt, w, h = info
+    if w < 320 or h < 240:
+        logger.warning("Слишком маленькое разрешение ИИ-картинки (%dx%d) — берём карточку рубрики.", w, h)
+        return None
+
+    if fmt == "webp":
+        conv = convert_webp_to_jpeg(raw_bytes)
+        if not conv:
+            return None
+        c_info = inspect_image_dimensions(conv)
+        if c_info:
+            _, w, h = c_info
+        return PreparedImage(
+            data=conv,
+            filename="ai_illustration.jpg",
+            mime_type="image/jpeg",
+            width=w,
+            height=h,
+            source_url=source_tag,
+        )
+
+    mime = "image/png" if fmt == "png" else "image/jpeg"
+    ext = "png" if fmt == "png" else "jpg"
+    return PreparedImage(
+        data=raw_bytes,
+        filename=f"ai_illustration.{ext}",
+        mime_type=mime,
+        width=w,
+        height=h,
+        source_url=source_tag,
+    )
 
 
 def load_fallback_editorial_card(config: dict[str, Any], category: str) -> PreparedImage | None:
@@ -111,6 +176,7 @@ def run_agent(
     mode: str = "auto",
     max_posts_override: int | None = None,
     allow_template_fallback: bool = True,
+    save_preview_dir: Path | None = None,
 ) -> int:
     """Выполняет полный цикл: поиск новостей -> отбор -> генерация ИИ-поста -> публикация в ВК."""
     config = load_config(config_path)
@@ -270,11 +336,6 @@ def run_agent(
             except AIProviderError as exc:
                 logger.warning("Основной ИИ-сервис вернул ошибку (%s) — переключаемся на встроенный редактор.", exc)
                 post_text = write_news_post(TemplateFallbackClient(), chosen_candidate, config, now=now)
-            if chosen_candidate.image_urls:
-                prepared_img = download_and_prepare_image(
-                    chosen_candidate.image_urls,
-                    referer_url=chosen_candidate.url,
-                )
         else:
             assert evergreen_topic is not None
             evergreen_id = str(evergreen_topic.get("id", "tip"))
@@ -291,8 +352,35 @@ def run_agent(
                 logger.warning("Основной ИИ-сервис вернул ошибку (%s) — переключаемся на встроенный редактор.", exc)
                 post_text = write_evergreen_tip_post(TemplateFallbackClient(), evergreen_topic, config, now=now)
 
+        # Подготовка иллюстрации: по умолчанию 100% своя ИИ-генерация (ai_only) без скачивания чужих фото СМИ
+        image_mode = str(posting_cfg.get("image_mode", "ai_only")).strip().lower()
+        if image_mode in {"ai_only", "ai_then_source"}:
+            prepared_img = prepare_ai_image_for_post(
+                ai_client,
+                title=post_title,
+                post_text=post_text,
+                category=post_category,
+                config=config,
+            )
+        if (
+            prepared_img is None
+            and image_mode in {"ai_then_source", "source_then_card"}
+            and chosen_candidate is not None
+            and chosen_candidate.image_urls
+        ):
+            prepared_img = download_and_prepare_image(
+                chosen_candidate.image_urls,
+                referer_url=chosen_candidate.url,
+            )
         if prepared_img is None and posting_cfg.get("use_branded_card_if_no_source_photo", True):
             prepared_img = load_fallback_editorial_card(config, post_category)
+
+        if save_preview_dir is not None:
+            save_preview_dir.mkdir(parents=True, exist_ok=True)
+            (save_preview_dir / "post.txt").write_text(post_text + "\n", encoding="utf-8")
+            if prepared_img is not None:
+                ext = "png" if prepared_img.mime_type == "image/png" else "jpg"
+                (save_preview_dir / f"image.{ext}").write_bytes(prepared_img.data)
 
         print("\n" + "=" * 72)
         print(f"ПОДГОТОВЛЕН ПОСТ ({post_category.upper()}) — {post_source}")
@@ -419,6 +507,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Безопасная проверка прав токенов ВК и ИИ с сохранением отчёта в JSON (без публикации)",
     )
     parser.add_argument(
+        "--save-preview-dir",
+        default=None,
+        help="Сохранить подготовленный текст поста и ИИ-картинку в указанную папку (например, при --dry-run)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Подробное логирование отладки",
@@ -511,6 +604,7 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             max_posts_override=args.max_posts,
             allow_template_fallback=args.allow_template_fallback,
+            save_preview_dir=Path(args.save_preview_dir) if args.save_preview_dir else None,
         )
     except (AIProviderError, VKAPIError, ValueError) as exc:
         logger.error("Критическая ошибка агента: %s", exc)

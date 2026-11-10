@@ -287,6 +287,122 @@ class AIWriterAndFormattingTests(unittest.TestCase):
         self.assertEqual(body["modelUri"], "gpt://b1gfolder76/yandexgpt/latest")
         self.assertEqual(body["messages"][0]["text"], "system text")
 
+    def test_gigachat_text2image_and_proofread_pass(self) -> None:
+        calls: list[tuple[str, dict[str, str], bytes]] = []
+        fake_png = make_minimal_png(1024, 1024)
+
+        def fake_urlopen(req, timeout=30, context=None):
+            headers = {k.lower(): v for k, v in req.header_items()}
+            body = req.data or b""
+            calls.append((req.full_url, headers, body))
+            if "oauth" in req.full_url:
+                return FakeHTTPResponse(
+                    json.dumps({"access_token": "giga-img-tok", "expires_at": 4_102_444_800_000}).encode("utf-8")
+                )
+            if "/files/f123-456-uuid/content" in req.full_url:
+                return FakeHTTPResponse(fake_png, headers={"Content-Type": "image/jpeg"})
+            payload = json.loads(body.decode("utf-8"))
+            if payload.get("function_call") == "auto":
+                return FakeHTTPResponse(
+                    json.dumps(
+                        {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": 'Готово! <img src="f123-456-uuid" fuse="true"/>',
+                                    }
+                                }
+                            ]
+                        }
+                    ).encode("utf-8")
+                )
+            # Корректорский проход (temperature <= 0.2) или генерация текста
+            if payload.get("temperature", 1.0) <= 0.25:
+                return FakeHTTPResponse(
+                    json.dumps(
+                        {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": (
+                                            "🚗 Аккумулятор зимой сдаётся именно в то утро, когда вы уже почти не опаздывали\n\n"
+                                            "В мороз ниже −20 °C ёмкость батареи падает почти вдвое, поэтому короткие поездки по 10 минут "
+                                            "не успевают восполнить заряд от генератора.\n\n"
+                                            "💡 Что проверить на выходных: замерьте напряжение мультиметром утром до запуска — норма 12,6–12,7 В.\n\n"
+                                            "А ваш аккумулятор этой зимой держится бодро или уже намекал на пенсию?"
+                                        ),
+                                    }
+                                }
+                            ]
+                        }
+                    ).encode("utf-8")
+                )
+            return FakeHTTPResponse(
+                json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": (
+                                        "🚗 Акумулятор зимой здаётся именно в то утро когда вы уже почти не опаздывали\n\n"
+                                        "В мороз ниже -20 ёмкость падает почти в двое поэтому короткие поездки не зарежают батарею.\n\n"
+                                        "💡 Что проверить: замерьте напряжение мультиметром утром до запуска — норма 12,6 В.\n\n"
+                                        "А ваш акумулятор держится бодро?"
+                                    ),
+                                }
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+            )
+
+        client_raw = base64.b64encode(b"11111111-2222-3333-4444-555555555555:secret99").decode("ascii")
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            client = ai_writer.GigaChatClient(client_raw, self.config["ai"]["gigachat"])
+            cand = news_fetcher.NewsCandidate(
+                title="Эксперты напомнили правила проверки аккумулятора в морозы",
+                url="https://example.ru/akb-winter",
+                source_name="За рулём",
+                category="tip",
+                summary="В сильный мороз ёмкость АКБ снижается, а короткие поездки не восполняют заряд.",
+            )
+            final_text = ai_writer.write_news_post(client, cand, self.config)
+            prep = agent.prepare_ai_image_for_post(
+                client,
+                title=cand.title,
+                post_text=final_text,
+                category="tip",
+                config=self.config,
+            )
+
+        # Проверяем, что корректор исправил «Акумулятор/здаётся/зарежают» -> «Аккумулятор/сдаётся»
+        self.assertIn("Аккумулятор зимой сдаётся", final_text)
+        self.assertNotIn("Акумулятор", final_text)
+        self.assertIn("📰 По материалам: За рулём", final_text)
+
+        # Проверяем протокол GigaChat text2image: function_call=auto -> /files/{id}/content + X-Client-ID
+        self.assertIsNotNone(prep)
+        assert prep is not None
+        self.assertEqual((prep.width, prep.height), (1024, 1024))
+        self.assertEqual(prep.source_url, "ai:GigaChat:f123-456-uuid")
+
+        file_calls = [c for c in calls if "/files/f123-456-uuid/content" in c[0]]
+        self.assertEqual(len(file_calls), 1)
+        self.assertEqual(file_calls[0][1]["authorization"], "Bearer giga-img-tok")
+        # По умолчанию X-Client-ID не отправляется, чтобы совпадать с запросом /chat/completions (без 403 Forbidden)
+        self.assertNotIn("x-client-id", file_calls[0][1])
+        img_prompt = ai_writer.build_ai_image_prompt(
+            ai_writer.TemplateFallbackClient(),
+            title=cand.title,
+            post_text=final_text,
+            category="tip",
+        )
+        self.assertIn("СТРОГО БЕЗ надписей", img_prompt)
+        self.assertIn("без госномера", img_prompt)
+
 
 class VKPublisherAndEndToEndTests(unittest.TestCase):
     def test_parse_group_identifier_variants(self) -> None:
