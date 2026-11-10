@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 2,
+  "total_posts": 3,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -37,6 +37,22 @@
       "category": "news",
       "vk_post_id": 179,
       "published_at": "2026-11-10T16:56:55.605245+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
+      "guid": "https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
+      "title": "«За рулем» назвал полноприводные машины до 2 млн рублей",
+      "tokens": [
+        "рул",
+        "полнопр",
+        "маши",
+        "млн",
+        "рубл"
+      ],
+      "category": "tip",
+      "vk_post_id": 180,
+      "published_at": "2026-11-10T17:42:33.165835+00:00"
     }
   ]
 }
