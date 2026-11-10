@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 4,
+  "total_posts": 5,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -71,6 +71,22 @@
       "category": "local_76",
       "vk_post_id": 181,
       "published_at": "2026-11-10T18:24:40.595253+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/nazvany-samye-deshevye-kitaiskie-krossovery-10-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/nazvany-samye-deshevye-kitaiskie-krossovery-10-11-2026.htm",
+      "guid": "https://motor.ru/news/nazvany-samye-deshevye-kitaiskie-krossovery-10-11-2026.htm",
+      "title": "Названы самые дешевые китайские кроссоверы",
+      "tokens": [
+        "назва",
+        "сам",
+        "дешев",
+        "китайск",
+        "кроссов"
+      ],
+      "category": "news",
+      "vk_post_id": 183,
+      "published_at": "2026-11-10T18:37:10.689609+00:00"
     }
   ]
 }
