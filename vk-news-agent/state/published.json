@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 3,
+  "total_posts": 4,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -53,6 +53,24 @@
       "category": "tip",
       "vk_post_id": 180,
       "published_at": "2026-11-10T17:42:33.165835+00:00"
+    },
+    {
+      "url": "https://news.google.com/rss/articles/CBMiakFVX3lxTE5fNjJEXzA3SnNPLXhiV2hFV3p6dVhUNHUtUlV5Wkk4Z3ZvcFJtQUdZakFTd2tOVnFtTVA2dTQ1RHFaYmRhLXl6eXlvZW5TYV9pWThrZHA5ZFg1ZDRQczN2c1RMdmUyOERZUVE?oc=5",
+      "normalized_url": "https://news.google.com/rss/articles/CBMiakFVX3lxTE5fNjJEXzA3SnNPLXhiV2hFV3p6dVhUNHUtUlV5Wkk4Z3ZvcFJtQUdZakFTd2tOVnFtTVA2dTQ1RHFaYmRhLXl6eXlvZW5TYV9pWThrZHA5ZFg1ZDRQczN2c1RMdmUyOERZUVE",
+      "guid": "CBMiakFVX3lxTE5fNjJEXzA3SnNPLXhiV2hFV3p6dVhUNHUtUlV5Wkk4Z3ZvcFJtQUdZakFTd2tOVnFtTVA2dTQ1RHFaYmRhLXl6eXlvZW5TYV9pWThrZHA5ZFg1ZDRQczN2c1RMdmUyOERZUVE",
+      "title": "ВАЗ всмятку столкнулся с грузовиком на трассе «Р-132» в Ярославле",
+      "tokens": [
+        "ваз",
+        "всмятк",
+        "столкну",
+        "грузови",
+        "трасс",
+        "р-132",
+        "ярослав"
+      ],
+      "category": "local_76",
+      "vk_post_id": 181,
+      "published_at": "2026-11-10T18:24:40.595253+00:00"
     }
   ]
 }
