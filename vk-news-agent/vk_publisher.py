@@ -257,17 +257,36 @@ def parse_group_identifier(raw_group: str) -> tuple[int | None, str]:
     return None, cleaned
 
 
-def encode_multipart_photo(field_name: str, filename: str, mime_type: str, file_bytes: bytes) -> tuple[bytes, str]:
+def encode_multipart_photo(
+    field_name: str,
+    filename: str,
+    mime_type: str,
+    file_bytes: bytes,
+    extra_fields: dict[str, str] | None = None,
+) -> tuple[bytes, str]:
     """Формирует тело multipart/form-data для загрузки фото на upload_url ВК без внешних библиотек."""
     boundary = f"----VKAgentBoundary{uuid.uuid4().hex}"
-    header = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
-        f"Content-Type: {mime_type}\r\n\r\n"
-    ).encode("utf-8")
-    footer = f"\r\n--{boundary}--\r\n".encode("utf-8")
+    chunks: list[bytes] = []
+    if extra_fields:
+        for k, v in extra_fields.items():
+            chunks.append(
+                (
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="{k}"\r\n\r\n'
+                    f"{v}\r\n"
+                ).encode("utf-8")
+            )
+    chunks.append(
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
+            f"Content-Type: {mime_type}\r\n\r\n"
+        ).encode("utf-8")
+    )
+    chunks.append(file_bytes)
+    chunks.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
     content_type = f"multipart/form-data; boundary={boundary}"
-    return header + file_bytes + footer, content_type
+    return b"".join(chunks), content_type
 
 
 class VKPublisher:
@@ -508,7 +527,19 @@ class VKPublisher:
         if guid:
             params["guid"] = guid
 
-        resp = self.call_api("wall.post", params, token=self.vk_token)
+        try:
+            resp = self.call_api("wall.post", params, token=self.vk_token)
+        except VKAPIError as exc:
+            # С ключом сообщества голая ссылка в attachments вызывает Error 100 (link_photo_sizing_rule)
+            if exc.code == 100 and "attachments" in params and not photo_att:
+                logger.warning("ВК отклонил ссылочное вложение (%s) — публикуем текст без карточки ссылки.", exc.vk_message)
+                params.pop("attachments", None)
+                attachments = []
+                resp = self.call_api("wall.post", params, token=self.vk_token)
+            elif exc.code in {15, 27, 1051} and self.vk_user_token:
+                resp = self.call_api("wall.post", params, token=self.vk_user_token)
+            else:
+                raise
         post_id = int((resp or {}).get("post_id", 0))
         post_url = f"https://vk.ru/wall-{group_id}_{post_id}" if post_id else f"https://vk.ru/{self.raw_group}"
         return {
@@ -519,14 +550,53 @@ class VKPublisher:
             "attachments": attachments,
         }
 
+    def edit_wall_post(
+        self,
+        post_id: int,
+        message: str,
+        *,
+        image: PreparedImage | None = None,
+    ) -> dict[str, Any]:
+        """Обновляет существующий пост на стене сообщества (включая добавление/замену фото)."""
+        group_id = self.resolve_group_id()
+        photo_att: str | None = None
+        if image is not None:
+            photo_att = self.upload_wall_photo(image)
+
+        params: dict[str, Any] = {
+            "owner_id": -group_id,
+            "post_id": post_id,
+            "from_group": 1,
+            "message": message,
+        }
+        if photo_att:
+            params["attachments"] = photo_att
+
+        edit_token = self.vk_user_token or self.vk_token
+        try:
+            self.call_api("wall.edit", params, token=edit_token)
+        except VKAPIError as exc:
+            if edit_token != self.vk_token:
+                self.call_api("wall.edit", params, token=self.vk_token)
+            else:
+                raise exc
+
+        return {
+            "group_id": group_id,
+            "post_id": post_id,
+            "post_url": f"https://vk.ru/wall-{group_id}_{post_id}",
+            "photo_attached": bool(photo_att),
+        }
+
     def update_group_info(
         self,
         *,
         title: str = "",
         description: str = "",
         status_text: str = "",
+        subject: int | None = None,
     ) -> dict[str, bool]:
-        """Обновляет название, описание и строку статуса сообщества ВКонтакте."""
+        """Обновляет название, тематику, описание и строку статуса сообщества ВКонтакте."""
         group_id = self.resolve_group_id()
         outcomes = {"info_updated": False, "status_updated": False}
 
@@ -535,6 +605,8 @@ class VKPublisher:
             edit_params["title"] = title.strip()
         if description.strip():
             edit_params["description"] = description.strip()
+        if subject is not None and int(subject) > 0:
+            edit_params["subject"] = int(subject)
 
         if len(edit_params) > 1:
             self.call_api("groups.edit", edit_params, token=self.vk_token)
@@ -627,7 +699,20 @@ class VKPublisher:
         if not upload_url:
             return False
 
-        body, content_type = encode_multipart_photo("photo", "avatar.jpg", "image/jpeg", avatar_bytes)
+        info = inspect_image_dimensions(avatar_bytes)
+        extra_crop: dict[str, str] | None = None
+        if info is not None:
+            _, aw, ah = info
+            side = min(aw, ah)
+            extra_crop = {"_square_crop": f"0,0,{side}"}
+
+        body, content_type = encode_multipart_photo(
+            "photo",
+            "avatar.jpg",
+            "image/jpeg",
+            avatar_bytes,
+            extra_fields=extra_crop,
+        )
         req = urllib.request.Request(
             upload_url,
             data=body,
@@ -653,7 +738,92 @@ class VKPublisher:
         logger.info("Аватар сообщества успешно установлен в группу ID %d!", group_id)
         return True
 
+    def diagnose_capabilities(self) -> dict[str, Any]:
+        """Безопасная проверка прав токена ВК (без публикации на стену и без вывода самих ключей)."""
+        diag: dict[str, Any] = {
+            "has_vk_token": bool(self.vk_token),
+            "has_vk_user_token": bool(self.vk_user_token),
+            "vk_token_prefix": self.vk_token[:6] if self.vk_token else "",
+        }
+        group_id = self.resolve_group_id()
+        diag["group_id"] = group_id
+
+        # 1. Проверяем тип основного токена: пользователь или сообщество
+        try:
+            users = self.call_api("users.get", {}, token=self.vk_token)
+            diag["vk_token_is_user"] = bool(isinstance(users, list) and len(users) > 0)
+        except VKAPIError as exc:
+            diag["vk_token_is_user"] = False
+            diag["users_get_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        try:
+            perms = self.call_api("groups.getTokenPermissions", {}, token=self.vk_token)
+            diag["community_token_permissions"] = perms
+        except VKAPIError as exc:
+            diag["community_token_permissions_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        photo_token = self.vk_user_token or self.vk_token
+
+        # 2. Проверяем доступность различных методов загрузки медиа
+        probes = [
+            ("photos.getWallUploadServer", {"group_id": group_id}, photo_token),
+            ("photos.getOwnerPhotoUploadServer", {"owner_id": -group_id}, photo_token),
+            ("photos.getOwnerCoverPhotoUploadServer", {"group_id": group_id, "crop_x2": 1920, "crop_y2": 768}, self.vk_token),
+            ("photos.getMessagesUploadServer", {"peer_id": 0}, self.vk_token),
+            ("docs.getWallUploadServer", {"group_id": group_id}, self.vk_token),
+        ]
+        methods_status: dict[str, Any] = {}
+        for m_name, m_params, m_tok in probes:
+            try:
+                res = self.call_api(m_name, m_params, token=m_tok)
+                methods_status[m_name] = {"ok": bool(res and res.get("upload_url"))}
+            except VKAPIError as exc:
+                methods_status[m_name] = {"ok": False, "code": exc.code, "msg": exc.vk_message}
+        diag["methods"] = methods_status
+
+        # 3. Текущее состояние группы и последних постов (типы вложений, закреп, обложка, аватар)
+        try:
+            grp = self.call_api(
+                "groups.getById",
+                {"group_id": str(group_id), "fields": "cover,description,status,photo_200,has_photo"},
+                token=self.vk_token,
+            )
+            groups_list = grp.get("groups") if isinstance(grp, dict) else grp
+            if isinstance(groups_list, list) and groups_list:
+                g0 = groups_list[0]
+                diag["group_state"] = {
+                    "name": g0.get("name"),
+                    "status": g0.get("status"),
+                    "has_photo": g0.get("has_photo"),
+                    "photo_200": g0.get("photo_200"),
+                    "cover_enabled": (g0.get("cover") or {}).get("enabled"),
+                }
+        except VKAPIError as exc:
+            diag["group_state_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        try:
+            wall = self.call_api(
+                "wall.get",
+                {"owner_id": -group_id, "count": 5},
+                token=photo_token,
+            )
+            items = (wall or {}).get("items") or []
+            diag["recent_wall"] = [
+                {
+                    "id": it.get("id"),
+                    "is_pinned": it.get("is_pinned"),
+                    "text_head": (it.get("text") or "")[:60],
+                    "attachments": [(a.get("type") or "") for a in (it.get("attachments") or [])],
+                }
+                for it in items
+            ]
+        except VKAPIError as exc:
+            diag["recent_wall_error"] = {"code": exc.code, "msg": exc.vk_message}
+
+        return diag
+
     def pin_wall_post(self, post_id: int) -> bool:
+
         """Закрепляет запись вверху стены сообщества."""
         if post_id <= 0:
             return False

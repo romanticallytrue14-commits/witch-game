@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from ai_writer import (  # noqa: E402
     AIProviderError,
     TemplateFallbackClient,
     create_ai_client,
+    inspect_gigachat_key_shape,
     select_best_candidate_with_ai,
     write_evergreen_tip_post,
     write_news_post,
@@ -30,11 +32,14 @@ from news_fetcher import (  # noqa: E402
     NewsCandidate,
     collect_fresh_candidates,
     enrich_candidate_from_webpage,
+    fetch_url_bytes,
 )
 from vk_publisher import (  # noqa: E402
+    PreparedImage,
     VKAPIError,
     VKPublisher,
     download_and_prepare_image,
+    inspect_image_dimensions,
 )
 
 logger = logging.getLogger("vk_news_agent")
@@ -46,6 +51,35 @@ def load_config(config_path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Некорректный формат конфигурации: {config_path}")
     return data
+
+
+def load_fallback_editorial_card(config: dict[str, Any], category: str) -> PreparedImage | None:
+    """Загружает фирменную обложку рубрики «АвтоТочка», если у статьи или автосовета нет внешнего фото."""
+    cards_map = (config.get("branding") or {}).get("fallback_cards") or {}
+    default_rel = {
+        "news": "branding/cards/news.jpg",
+        "tip": "branding/cards/tip.jpg",
+        "local_76": "branding/cards/road.jpg",
+    }
+    rel_path = str(cards_map.get(category) or default_rel.get(category) or "branding/cards/news.jpg")
+    card_path = AGENT_DIR / rel_path
+    if not card_path.exists():
+        return None
+    raw = card_path.read_bytes()
+    info = inspect_image_dimensions(raw)
+    if info is None:
+        return None
+    fmt, w, h = info
+    mime = "image/png" if fmt == "png" else "image/jpeg"
+    ext = "png" if fmt == "png" else "jpg"
+    return PreparedImage(
+        data=raw,
+        filename=f"avtotochka_{category}.{ext}",
+        mime_type=mime,
+        width=w,
+        height=h,
+        source_url=f"local:{rel_path}",
+    )
 
 
 def append_github_summary(markdown_block: str) -> None:
@@ -236,6 +270,9 @@ def run_agent(
                 logger.warning("Основной ИИ-сервис вернул ошибку (%s) — переключаемся на встроенный редактор.", exc)
                 post_text = write_evergreen_tip_post(TemplateFallbackClient(), evergreen_topic, config, now=now)
 
+        if prepared_img is None and posting_cfg.get("use_branded_card_if_no_source_photo", True):
+            prepared_img = load_fallback_editorial_card(config, post_category)
+
         print("\n" + "=" * 72)
         print(f"ПОДГОТОВЛЕН ПОСТ ({post_category.upper()}) — {post_source}")
         print(f"Тема: {post_title}")
@@ -296,7 +333,11 @@ def run_agent(
         dedup.save()
         published_count += 1
 
-        photo_badge = "✅ Фото прикреплено" if result.get("photo_attached") else "⚪ Только текст"
+        photo_badge = (
+            "✅ Фото прикреплено"
+            if result.get("photo_attached")
+            else "⚪ Только текст (для загрузки фото в ВК добавьте секрет `VK_USER_TOKEN`)"
+        )
         summary_sections.append(
             f"### ✅ Опубликован пост #{published_count}\n"
             f"- **Ссылка на запись ВК**: [{vk_post_url}]({vk_post_url})\n"
@@ -352,11 +393,84 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Требовать строго внешний ключ GigaChat / YandexGPT (останавливать запуск при его отсутствии)",
     )
     parser.add_argument(
+        "--diagnose",
+        default=None,
+        help="Безопасная проверка прав токенов ВК и ИИ с сохранением отчёта в JSON (без публикации)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Подробное логирование отладки",
     )
     return parser
+
+
+def run_diagnostics(config_path: Path, report_path: Path) -> int:
+    config = load_config(config_path)
+    group_cfg = config.get("group", {})
+    vk_group = (
+        os.getenv("VK_GROUP")
+        or str(group_cfg.get("screen_name") or group_cfg.get("url") or "autoyar076")
+    ).strip()
+    vk_token = (os.getenv("VK_TOKEN") or "").strip()
+    vk_user_token = (os.getenv("VK_USER_TOKEN") or "").strip()
+
+    report: dict[str, Any] = {
+        "env_present": {
+            "VK_TOKEN": bool(vk_token),
+            "VK_USER_TOKEN": bool(vk_user_token),
+            "GIGACHAT_AUTH_KEY": bool((os.getenv("GIGACHAT_AUTH_KEY") or "").strip()),
+            "YANDEX_API_KEY": bool((os.getenv("YANDEX_API_KEY") or "").strip()),
+        },
+        "gigachat_key_shape": inspect_gigachat_key_shape(os.getenv("GIGACHAT_AUTH_KEY") or ""),
+    }
+
+    # 1. Тест нейросети
+    try:
+        ai_client = create_ai_client(config, allow_template_fallback=True)
+        report["ai_client"] = ai_client.name
+        sample = ai_client.generate(
+            "Ответь одним коротким предложением на русском.",
+            "Напиши: Связь с нейросетью установлена.",
+            temperature=0.2,
+            max_tokens=40,
+        )
+        report["ai_test"] = {"ok": True, "reply_preview": sample[:100]}
+    except Exception as exc:  # noqa: BLE001
+        report["ai_test"] = {"ok": False, "error": str(exc)[:300]}
+
+    # 2. Тест ВК (только безопасное чтение прав без публикации)
+    if vk_token:
+        pub = VKPublisher(vk_token=vk_token, vk_group=vk_group, vk_user_token=vk_user_token)
+        try:
+            report["vk"] = pub.diagnose_capabilities()
+        except Exception as exc:  # noqa: BLE001
+            report["vk"] = {"ok": False, "error": str(exc)[:300]}
+
+    # 3. Тест парсинга картинок
+    img_probe: dict[str, Any] = {}
+    cand = NewsCandidate(
+        title="test",
+        url="https://motor.ru/news/za-rulem-nazval-polnoprivodnye-mashiny-do-2-mln-rublei-10-11-2026.htm",
+        source_name="Motor.ru",
+        category="tip",
+        summary="test",
+    )
+    cand = enrich_candidate_from_webpage(cand)
+    prep = download_and_prepare_image(cand.image_urls, referer_url=cand.url) if cand.image_urls else None
+    img_probe["motor"] = {
+        "found_urls": cand.image_urls[:3],
+        "prepared": (
+            {"w": prep.width, "h": prep.height, "mime": prep.mime_type, "bytes": len(prep.data)}
+            if prep
+            else None
+        ),
+    }
+    report["image_probe"] = img_probe
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -366,6 +480,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+    if args.diagnose:
+        return run_diagnostics(Path(args.config), Path(args.diagnose))
     try:
         return run_agent(
             config_path=Path(args.config),
