@@ -584,12 +584,15 @@ class VKPublisher:
         message: str,
         *,
         image: PreparedImage | None = None,
+        keep_attachments: str | None = None,
     ) -> dict[str, Any]:
-        """Обновляет существующий пост на стене сообщества (включая добавление/замену фото)."""
+        """Обновляет существующий пост на стене сообщества (с заменой или сохранением фото)."""
         group_id = self.resolve_group_id()
         photo_att: str | None = None
         if image is not None:
             photo_att = self.upload_wall_photo(image)
+
+        effective_att = photo_att or (keep_attachments or "").strip() or None
 
         params: dict[str, Any] = {
             "owner_id": -group_id,
@@ -597,8 +600,8 @@ class VKPublisher:
             "from_group": 1,
             "message": message,
         }
-        if photo_att:
-            params["attachments"] = photo_att
+        if effective_att:
+            params["attachments"] = effective_att
 
         edit_token = self.vk_user_token or self.vk_token
         try:
@@ -613,8 +616,22 @@ class VKPublisher:
             "group_id": group_id,
             "post_id": post_id,
             "post_url": f"https://vk.ru/wall-{group_id}_{post_id}",
-            "photo_attached": bool(photo_att),
+            "photo_attached": bool(effective_att),
         }
+
+    def delete_wall_post(self, post_id: int) -> bool:
+        """Удаляет сервисную запись со стены (например, автопост ВК об обновлении аватарки)."""
+        if post_id <= 0:
+            return False
+        group_id = self.resolve_group_id()
+        tok = self.vk_user_token or self.vk_token
+        try:
+            self.call_api("wall.delete", {"owner_id": -group_id, "post_id": post_id}, token=tok)
+            logger.info("Сервисная запись #%d удалена со стены.", post_id)
+            return True
+        except VKAPIError as exc:
+            logger.debug("Не удалось удалить запись #%d: %s", post_id, exc)
+            return False
 
     def update_group_info(
         self,
@@ -626,7 +643,7 @@ class VKPublisher:
     ) -> dict[str, bool]:
         """Обновляет название, тематику, описание и строку статуса сообщества ВКонтакте."""
         group_id = self.resolve_group_id()
-        outcomes = {"info_updated": False, "status_updated": False}
+        outcomes = {"info_updated": False, "status_updated": False, "title_verified": False}
 
         edit_params: dict[str, Any] = {"group_id": group_id}
         if title.strip():
@@ -637,9 +654,29 @@ class VKPublisher:
             edit_params["subject"] = int(subject)
 
         if len(edit_params) > 1:
-            self.call_api("groups.edit", edit_params, token=self.vk_token)
-            outcomes["info_updated"] = True
-            logger.info("Название и описание группы (ID %d) успешно обновлены.", group_id)
+            tokens_to_try = [t for t in [self.vk_user_token, self.vk_token] if t]
+            last_err: VKAPIError | None = None
+            for tok in tokens_to_try:
+                try:
+                    self.call_api("groups.edit", edit_params, token=tok)
+                    outcomes["info_updated"] = True
+                    last_err = None
+                    # Проверяем, что название действительно применилось
+                    if title.strip():
+                        grp = self.call_api("groups.getById", {"group_id": str(group_id)}, token=tok)
+                        g_list = grp.get("groups") if isinstance(grp, dict) else grp
+                        actual_name = str(g_list[0].get("name", "")).strip() if isinstance(g_list, list) and g_list else ""
+                        if actual_name == title.strip():
+                            outcomes["title_verified"] = True
+                            break
+                    else:
+                        break
+                except VKAPIError as exc:
+                    last_err = exc
+                    continue
+            if not outcomes["info_updated"] and last_err is not None:
+                raise last_err
+            logger.info("Название и описание группы (ID %d) успешно обновлены (title_verified=%s).", group_id, outcomes["title_verified"])
 
         if status_text.strip():
             trimmed_status = status_text.strip()[:140]

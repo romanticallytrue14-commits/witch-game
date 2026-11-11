@@ -119,7 +119,7 @@ def prepare_ai_image_for_post(
 
 
 def load_fallback_editorial_card(config: dict[str, Any], category: str) -> PreparedImage | None:
-    """Загружает фирменную обложку рубрики «АвтоТочка», если у статьи или автосовета нет внешнего фото."""
+    """Загружает фирменную карточку рубрики «Греем Мотор», если генерация ИИ-картинки временно недоступна."""
     cards_map = (config.get("branding") or {}).get("fallback_cards") or {}
     default_rel = {
         "news": "branding/cards/news.jpg",
@@ -139,7 +139,7 @@ def load_fallback_editorial_card(config: dict[str, Any], category: str) -> Prepa
     ext = "png" if fmt == "png" else "jpg"
     return PreparedImage(
         data=raw,
-        filename=f"avtotochka_{category}.{ext}",
+        filename=f"greem_motor_{category}.{ext}",
         mime_type=mime,
         width=w,
         height=h,
@@ -256,9 +256,9 @@ def run_agent(
 
     candidates = collect_fresh_candidates(config, dedup, now=now)
     published_count = 0
-    group_title = str(group_cfg.get("title", "АвтоТочка"))
+    group_title = str(group_cfg.get("title", "Греем Мотор"))
     summary_sections: list[str] = [
-        f"## 📍 Новостной ИИ-агент «{group_title}» (`{vk_group}`)",
+        f"## 🔥 Новостной ИИ-агент «{group_title}» (`{vk_group}`)",
         f"- **Режим запуска**: `{'DRY-RUN (тест без публикации)' if dry_run else 'Боевая публикация на стену ВК'}`",
         f"- **Нейросеть**: `{ai_client.name}`",
         f"- **Найдено свежих уникальных инфоповодов**: `{len(candidates)}`",

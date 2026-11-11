@@ -380,7 +380,7 @@ class GigaChatClient:
 
         sys_msg = (
             system_prompt.strip()
-            or "Ты — профессиональный автомобильный иллюстратор и фотохудожник журнала «АвтоТочка»."
+            or "Ты — профессиональный автомобильный иллюстратор и фотохудожник журнала «Греем Мотор»."
         )
 
         prompts_to_try = [
@@ -574,7 +574,7 @@ class TemplateFallbackClient:
             )
         return (
             "🚗",
-            "Следите за техническим состоянием автомобиля и актуальными новостями авторынка вместе с «АвтоТочкой».",
+            "Следите за техническим состоянием автомобиля и главными событиями авторынка вместе с «Греем Мотор».",
             "А что вы думаете по этому поводу? Делитесь мнением в комментариях 👇",
         )
 
@@ -846,7 +846,7 @@ def select_best_candidate_with_ai(
         else "Выбери самую важную, живую и цепляющую новость для российских автомобилистов и жителей Ярославля (76 регион)."
     )
 
-    group_title = str(config.get("group", {}).get("title", "АвтоТочка"))
+    group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
     system_prompt = (
         f"Ты главный редактор автомобильного сообщества ВКонтакте «{group_title}» (Ярославль). "
         "Ответь ТОЛЬКО одной цифрой — номером лучшего инфоповода из списка."
@@ -883,8 +883,9 @@ def proofread_vk_post_with_ai(
     if len(cleaned_draft) < 120:
         return draft_text
 
+    group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
     system_prompt = (
-        "Ты строгий литературный редактор и корректор русского языка автомобильного издания «АвтоТочка».\n"
+        f"Ты строгий литературный редактор и корректор русского языка автомобильного издания «{group_title}».\n"
         "Твоя задача — вычитать готовый черновик поста для ВКонтакте и довести русский язык до идеала, "
         "ОБЯЗАТЕЛЬНО СОХРАНИВ живой тон, структуру абзацев, эмодзи и лёгкую остроумную водительскую иронию автора "
         "(ни в коем случае не засушивай текст до скучной сводки!).\n"
@@ -1011,11 +1012,12 @@ def write_news_post(
     temperature = float(ai_cfg.get("temperature", 0.65))
     max_tokens = int(ai_cfg.get("max_tokens", 1200))
 
-    group_title = str(config.get("group", {}).get("title", "АвтоТочка"))
+    group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
     system_prompt = (
-        "Ты опытный автоэксперт и главный редактор живого автомобильного сообщества ВКонтакте "
+        "Ты опытный автоэксперт и главный редактор узнаваемого автомобильного журнала ВКонтакте "
         f"«{group_title}» (Ярославль и Ярославская область, 76 регион, https://vk.ru/autoyar076). "
-        "Твоя аудитория — реальные водители, автовладельцы, покупатели машин с пробегом и любители авто.\n"
+        "Концепция бренда «Греем Мотор» — тёплый, умный двухминутный выпуск, который водитель читает с интересом, "
+        "пока прогревается двигатель.\n"
         "СТИЛЬ И ЮМОР:\n"
         "- Пиши живо, по делу, безупречно грамотным русским языком без канцелярита и штампов.\n"
         "- Обязательно вплети 1–2 лёгких, остроумных и добрых ироничных наблюдения из реальной жизни российского автомобилиста "
@@ -1076,7 +1078,7 @@ def write_evergreen_tip_post(
     temperature = float(ai_cfg.get("temperature", 0.65))
     max_tokens = int(ai_cfg.get("max_tokens", 1200))
 
-    group_title = str(config.get("group", {}).get("title", "АвтоТочка"))
+    group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
     system_prompt = (
         "Ты практикующий мастер-приёмщик, автоподборщик и редактор сообщества ВКонтакте "
         f"«{group_title}» (Ярославль, 76 регион). Пиши экспертно, тепло, безупречно грамотным русским языком, "
@@ -1114,3 +1116,73 @@ def write_evergreen_tip_post(
         source_name="",
         source_url="",
     )
+
+
+def rewrite_existing_post_text(
+    client: Any,
+    existing_text: str,
+    config: dict[str, Any],
+    *,
+    category: str = "news",
+    source_name: str = "",
+    source_url: str = "",
+) -> str:
+    """Полностью переписывает уже выпущенный пост в фирменном стиле бренда «Греем Мотор»."""
+    lines: list[str] = []
+    detected_source = source_name.strip()
+    for raw_ln in (existing_text or "").splitlines():
+        s = raw_ln.strip()
+        if s.startswith("📰 По материалам:"):
+            if not detected_source:
+                detected_source = s.split(":", 1)[1].strip()
+            continue
+        if s.startswith("#") and " " not in s.replace(" #", ""):
+            continue
+        if s.startswith("#") and all(tok.startswith("#") for tok in s.split()):
+            continue
+        lines.append(raw_ln)
+
+    clean_fact_base = "\n".join(lines).strip()
+    clean_fact_base = re.sub(r"«?АвтоТочк[а-яА-ЯёЁ]*»?", "«Греем Мотор»", clean_fact_base, flags=re.IGNORECASE)
+
+    if isinstance(client, TemplateFallbackClient) or len(clean_fact_base) < 80:
+        return finalize_vk_post(
+            clean_fact_base,
+            config,
+            category=category,
+            source_name=detected_source,
+            source_url=source_url,
+        )
+
+    group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
+    system_prompt = (
+        f"Ты главный редактор автомобильного журнала ВКонтакте «{group_title}» (Ярославль и 76 регион, https://vk.ru/autoyar076). "
+        "Твоя задача — заново, свежо и авторски переписать уже опубликованный пост в нашем новом узнаваемом стиле.\n"
+        "ФИРМЕННЫЙ ПОЧЕРК «ГРЕЕМ МОТОР»:\n"
+        "- Представь живой утренний или вечерний выпуск на 2 минуты чтения, пока прогревается двигатель.\n"
+        "- Вплети 1–2 тонких, остроумных и добрых ироничных наблюдения из реального быта автомобилиста "
+        "(например, что три сенсорных экрана в салоне плохо греют руки в −25 °C, если печка еле тёплая, или про реалии наших зимних дорог). "
+        "ВАЖНО: если пост про тяжёлое ДТП — пиши спокойно и уважительно без юмора.\n"
+        "- Сохрани ВСЕ реальные факты, имена экспертов, марки и цифры из исходного текста, ничего не выдумывая от себя.\n"
+        "- Строго без Markdown (**звёздочек**, ### заголовков), без казённых подзаголовков вроде «Вопрос читателям:», "
+        "без внешних ссылок и без хештегов (хештеги система добавит сама).\n"
+        "- Структура: яркий заголовок с эмодзи -> живая суть с лёгкой водительской иронией -> короткий практический блок "
+        "«💡 На заметку водителю:» -> естественный вопрос подписчикам в конце."
+    )
+    user_prompt = (
+        f"КАТЕГОРИЯ: {category}\n"
+        f"ИСХОДНЫЙ ПОСТ ДЛЯ ПЕРЕРАБОТКИ:\n{clean_fact_base}\n\n"
+        "Перепиши этот материал свежо, живо, с лёгким умным водительским юмором и безупречным русским языком "
+        "(объём 800–1500 знаков). Выведи ТОЛЬКО готовый текст поста."
+    )
+
+    draft = client.generate(system_prompt, user_prompt, temperature=0.65, max_tokens=1250)
+    checked = proofread_vk_post_with_ai(client, draft, clean_fact_base, config)
+    return finalize_vk_post(
+        checked,
+        config,
+        category=category,
+        source_name=detected_source,
+        source_url=source_url,
+    )
+

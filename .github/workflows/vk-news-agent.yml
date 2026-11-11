@@ -1,4 +1,4 @@
-name: "АвтоТочка — Новостной ИИ-агент ВК"
+name: "Греем Мотор — Новостной ИИ-агент ВК"
 
 on:
   schedule:
@@ -80,7 +80,7 @@ jobs:
             sudo apt-get update && sudo apt-get install -y --no-install-recommends imagemagick
           fi
 
-      - name: Запуск новостного ИИ-агента «АвтоТочка»
+      - name: Запуск новостного ИИ-агента «Греем Мотор»
         id: run_agent
         run: |
           DRY_RUN="${{ inputs.dry_run }}"
@@ -91,7 +91,7 @@ jobs:
           if [ "${{ github.event_name }}" = "schedule" ] && [ -z "${VK_TOKEN}" ]; then
             echo "⏸️ Автозапуск ожидает настройки секретов VK_TOKEN и GIGACHAT_AUTH_KEY (или YANDEX_API_KEY + YANDEX_FOLDER_ID)."
             {
-              echo "## ⏸️ Новостной агент «АвтоТочка» ожидает подключения ключей"
+              echo "## ⏸️ Новостной агент «Греем Мотор» ожидает подключения ключей"
               echo "Добавьте секреты **\`VK_TOKEN\`** и ключ нейросети (**\`GIGACHAT_AUTH_KEY\`** или **\`YANDEX_API_KEY\` + \`YANDEX_FOLDER_ID\`**) в разделе:"
               echo "\`Settings → Secrets and variables → Actions → New repository secret\`."
               echo ""
