@@ -1,9 +1,6 @@
 name: "Греем Мотор — Оформление группы ВК (в 1 клик)"
 
 on:
-  push:
-    branches:
-      - arena/34a0de24-witch-game
   workflow_dispatch:
     inputs:
       dry_run:
@@ -83,10 +80,6 @@ jobs:
 
       - name: Применение оформления сообщества «Греем Мотор»
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            python3 vk-news-agent/setup_group_profile.py --skip-info --skip-cover --skip-avatar --skip-backfill
-            exit 0
-          fi
           ARGS=()
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)
