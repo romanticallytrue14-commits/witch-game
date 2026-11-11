@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 7,
+  "total_posts": 8,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -123,6 +123,26 @@
       "category": "news",
       "vk_post_id": 186,
       "published_at": "2026-11-11T11:07:32.455948+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/voditel-narushil-pdd-no-ego-spasla-chaika-zakryvshaya-krylom-ego-nomer-dlya-kamery-11-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/voditel-narushil-pdd-no-ego-spasla-chaika-zakryvshaya-krylom-ego-nomer-dlya-kamery-11-11-2026.htm",
+      "guid": "https://motor.ru/news/voditel-narushil-pdd-no-ego-spasla-chaika-zakryvshaya-krylom-ego-nomer-dlya-kamery-11-11-2026.htm",
+      "title": "Водитель нарушил ПДД, но его спасла чайка, закрывшая крылом его номер для камеры",
+      "tokens": [
+        "водител",
+        "нарушил",
+        "пдд",
+        "спас",
+        "чайк",
+        "закрывш",
+        "крыл",
+        "номер",
+        "камер"
+      ],
+      "category": "local_76",
+      "vk_post_id": 187,
+      "published_at": "2026-11-11T17:02:29.860722+00:00"
     }
   ]
 }
