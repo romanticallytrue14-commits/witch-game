@@ -1,6 +1,9 @@
 name: "Греем Мотор — Оформление группы ВК (в 1 клик)"
 
 on:
+  push:
+    branches:
+      - arena/34a0de24-witch-game
   workflow_dispatch:
     inputs:
       dry_run:
@@ -49,7 +52,7 @@ permissions:
 
 jobs:
   setup-branding:
-    name: "Установка оформления «Греем Мотор» в vk.ru/autoyar076"
+    name: "Установка оформления «Греем Мотор» в vk.ru/greem_motor"
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -80,6 +83,15 @@ jobs:
 
       - name: Применение оформления сообщества «Греем Мотор»
         run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            python3 vk-news-agent/setup_group_profile.py --skip-cover --skip-avatar --rewrite-wall --save-verify-json vk-news-agent/state/_address_verify.json
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add vk-news-agent/state/branding_state.json vk-news-agent/state/_address_verify.json
+            git commit -m "chore(vk): verify updated group address greem_motor on live wall [skip ci]" || true
+            git push origin HEAD:arena/34a0de24-witch-game || true
+            exit 0
+          fi
           ARGS=()
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)

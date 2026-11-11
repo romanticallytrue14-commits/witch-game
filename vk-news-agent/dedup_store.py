@@ -144,7 +144,7 @@ def token_similarity(tokens_a: list[str] | set[str], tokens_b: list[str] | set[s
 def make_post_guid(seed: str) -> str:
     """Детерминированный идентификатор для параметра guid в VK wall.post."""
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
-    return f"autoyar076-{digest}"
+    return f"greem-motor-{digest}"
 
 
 class DedupStore:

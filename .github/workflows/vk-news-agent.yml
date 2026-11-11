@@ -33,7 +33,7 @@ on:
           - "3"
 
 concurrency:
-  group: vk-news-agent-autoyar076
+  group: vk-news-agent-greem-motor
   cancel-in-progress: false
 
 permissions:
@@ -41,7 +41,7 @@ permissions:
 
 jobs:
   publish-news:
-    name: "Поиск новостей и публикация в vk.ru/autoyar076"
+    name: "Поиск новостей и публикация в vk.ru/greem_motor"
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

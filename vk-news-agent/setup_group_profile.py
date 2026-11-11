@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Автоматическая установка, ребрендинг и обновление оформления группы ВКонтакте «Греем Мотор» (https://vk.ru/autoyar076)."""
+"""Автоматическая установка, ребрендинг и обновление оформления группы ВКонтакте «Греем Мотор» (https://vk.ru/greem_motor)."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from vk_publisher import (  # noqa: E402
     VKPublisher,
     download_and_prepare_image,
     inspect_image_dimensions,
+    resolve_configured_vk_group,
 )
 
 logger = logging.getLogger("vk_news_agent.branding")
@@ -269,10 +270,7 @@ def apply_group_branding(
     group_cfg = config.get("group", {})
     brand_cfg = config.get("branding", {})
 
-    vk_group = (
-        os.getenv("VK_GROUP")
-        or str(group_cfg.get("screen_name") or group_cfg.get("url") or "autoyar076")
-    ).strip()
+    vk_group, fallback_gid = resolve_configured_vk_group(config)
     vk_token = (os.getenv("VK_TOKEN") or "").strip()
     vk_user_token = (
         os.getenv("VK_USER_TOKEN")
@@ -324,10 +322,17 @@ def apply_group_branding(
         )
         return 1
 
-    pub = VKPublisher(vk_token=vk_token, vk_group=vk_group, vk_user_token=vk_user_token)
+    pub = VKPublisher(
+        vk_token=vk_token,
+        vk_group=vk_group,
+        vk_user_token=vk_user_token,
+        fallback_group_id=fallback_gid,
+    )
     gid = pub.resolve_group_id()
     b_state = load_branding_state(effective_b_state_path)
-    report_lines.append(f"- **ID сообщества ВК**: `{gid}` ([открыть группу](https://vk.ru/{vk_group}))\n")
+    _, slug_only = (None, vk_group)
+    group_open_url = vk_group if vk_group.startswith("http") else f"https://vk.ru/{slug_only}"
+    report_lines.append(f"- **ID сообщества ВК**: `{gid}` ([открыть группу]({group_open_url}))\n")
 
     if update_info:
         try:
@@ -374,6 +379,7 @@ def apply_group_branding(
 
     if publish_pinned and pinned_text:
         existing_pin_id = int(b_state.get("pinned_post_id") or 0)
+        matched_pin_item: dict[str, Any] | None = None
         if not force_new_pinned and wall_items:
             for w_it in wall_items:
                 txt = str(w_it.get("text") or "")
@@ -383,11 +389,21 @@ def apply_group_branding(
                     or "Добро пожаловать в «АвтоТочк" in txt
                 ):
                     existing_pin_id = int(w_it.get("id") or existing_pin_id)
+                    matched_pin_item = w_it
                     break
+            if matched_pin_item is None and existing_pin_id > 0:
+                for w_it in wall_items:
+                    if int(w_it.get("id") or 0) == existing_pin_id:
+                        matched_pin_item = w_it
+                        break
 
         if existing_pin_id > 0 and not force_new_pinned:
+            existing_pin_att = extract_existing_photo_attachment(matched_pin_item or {})
             try:
-                edit_res = pub.edit_wall_post(existing_pin_id, pinned_text, image=pinned_img)
+                if existing_pin_att and b_state.get("pinned_has_photo"):
+                    edit_res = pub.edit_wall_post(existing_pin_id, pinned_text, keep_attachments=existing_pin_att)
+                else:
+                    edit_res = pub.edit_wall_post(existing_pin_id, pinned_text, image=pinned_img)
                 pub.pin_wall_post(existing_pin_id)
                 b_state["pinned_post_id"] = existing_pin_id
                 b_state["pinned_has_photo"] = bool(edit_res.get("photo_attached"))

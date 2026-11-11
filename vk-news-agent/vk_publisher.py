@@ -264,15 +264,18 @@ def normalize_vk_token(raw_tok: str) -> str:
     return s
 
 
+LEGACY_GROUP_SLUGS = {"autoyar076"}
+
+
 def parse_group_identifier(raw_group: str) -> tuple[int | None, str]:
-    """Разбирает ссылку или короткое имя группы ('https://vk.ru/autoyar076', '-12345', 'club12345')."""
+    """Разбирает ссылку или короткое имя группы ('https://vk.ru/greem_motor', '-12345', 'club12345')."""
     cleaned = raw_group.strip()
     if not cleaned:
         raise ValueError("Не указан адрес или ID группы ВК")
 
-    # Убираем домен vk.ru / vk.com
+    # Убираем домен vk.ru / vk.com и собачку @
     cleaned = re.sub(r"^https?://(?:m\.)?vk\.(?:ru|com)/", "", cleaned, flags=re.IGNORECASE)
-    cleaned = cleaned.strip("/").split("?")[0].split("#")[0]
+    cleaned = cleaned.strip("/").lstrip("@").split("?")[0].split("#")[0]
 
     if re.fullmatch(r"-?\d+", cleaned):
         return abs(int(cleaned)), ""
@@ -282,6 +285,36 @@ def parse_group_identifier(raw_group: str) -> tuple[int | None, str]:
         return int(m_club.group(1)), ""
 
     return None, cleaned
+
+
+def resolve_configured_vk_group(config: dict[str, Any]) -> tuple[str, int | None]:
+    """Определяет актуальный адрес группы и резервный числовой ID, игнорируя устаревший секрет autoyar076."""
+    group_cfg = config.get("group") or {}
+    cfg_screen = str(group_cfg.get("screen_name") or group_cfg.get("url") or "greem_motor").strip()
+    fallback_id: int | None = None
+    if group_cfg.get("id"):
+        try:
+            fallback_id = abs(int(group_cfg["id"]))
+        except (TypeError, ValueError):
+            fallback_id = None
+
+    env_group = (os.getenv("VK_GROUP") or "").strip()
+    if env_group:
+        try:
+            num_id, slug = parse_group_identifier(env_group)
+        except ValueError:
+            num_id, slug = None, ""
+        if slug and slug.lower() in LEGACY_GROUP_SLUGS:
+            logger.info(
+                "Переменная VK_GROUP содержит прежний адрес «%s» — автоматически используем новый адрес «%s».",
+                env_group,
+                cfg_screen,
+            )
+            return cfg_screen, fallback_id
+        if num_id is not None or slug:
+            return env_group, fallback_id
+
+    return cfg_screen, fallback_id
 
 
 def encode_multipart_photo(
@@ -322,16 +355,18 @@ class VKPublisher:
     def __init__(
         self,
         vk_token: str,
-        vk_group: str = "autoyar076",
+        vk_group: str = "greem_motor",
         vk_user_token: str = "",
         api_version: str = VK_API_VERSION,
+        fallback_group_id: int | None = None,
     ) -> None:
         self.raw_vk_token = vk_token
         self.raw_vk_user_token = vk_user_token
         self.vk_token = normalize_vk_token(vk_token)
         self.vk_user_token = normalize_vk_token(vk_user_token)
-        self.raw_group = vk_group.strip() or "autoyar076"
+        self.raw_group = vk_group.strip() or "greem_motor"
         self.api_version = api_version
+        self.fallback_group_id = abs(int(fallback_group_id)) if fallback_group_id else None
         self.ssl_ctx = ssl.create_default_context()
         self._resolved_group_id: int | None = None
 
@@ -384,7 +419,7 @@ class VKPublisher:
         raise VKAPIError(-2, f"Сеть недоступна при вызове {method}: {last_net_err}", method=method)
 
     def resolve_group_id(self) -> int:
-        """Определяет числовой ID сообщества (например, для https://vk.ru/autoyar076)."""
+        """Определяет числовой ID сообщества (например, для https://vk.ru/greem_motor)."""
         if self._resolved_group_id is not None:
             return self._resolved_group_id
 
@@ -407,16 +442,28 @@ class VKPublisher:
             logger.debug("groups.getById не вернул ID для %s: %s", screen_name, exc)
 
         # 2. Резервный способ через utils.resolveScreenName
-        resp = self.call_api(
-            "utils.resolveScreenName",
-            {"screen_name": screen_name},
-            token=self.vk_user_token or self.vk_token,
-        )
-        if isinstance(resp, dict) and resp.get("object_id"):
-            gid = abs(int(resp["object_id"]))
-            self._resolved_group_id = gid
-            logger.info("Короткое имя «%s» разрешено в group_id=%d", screen_name, gid)
-            return gid
+        try:
+            resp = self.call_api(
+                "utils.resolveScreenName",
+                {"screen_name": screen_name},
+                token=self.vk_user_token or self.vk_token,
+            )
+            if isinstance(resp, dict) and resp.get("object_id"):
+                gid = abs(int(resp["object_id"]))
+                self._resolved_group_id = gid
+                logger.info("Короткое имя «%s» разрешено в group_id=%d", screen_name, gid)
+                return gid
+        except VKAPIError as exc:
+            logger.debug("utils.resolveScreenName не вернул ID для %s: %s", screen_name, exc)
+
+        if self.fallback_group_id:
+            self._resolved_group_id = self.fallback_group_id
+            logger.warning(
+                "Короткое имя «%s» не найдено через API — используем постоянный ID сообщества group_id=%d",
+                screen_name,
+                self._resolved_group_id,
+            )
+            return self._resolved_group_id
 
         raise VKAPIError(
             100,

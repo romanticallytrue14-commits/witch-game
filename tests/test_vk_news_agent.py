@@ -1,4 +1,4 @@
-"""Комплексные тесты новостного ИИ-агента ВКонтакте для https://vk.ru/autoyar076."""
+"""Комплексные тесты новостного ИИ-агента ВКонтакте для https://vk.ru/greem_motor."""
 
 from __future__ import annotations
 
@@ -199,8 +199,10 @@ class AIWriterAndFormattingTests(unittest.TestCase):
         self.assertNotIn("https://www.kolesa.ru", final_text)  # внешние ссылки скрыты для сохранения охватов ВК
         self.assertIn("• Тёплый пакет уже в базе", final_text)
         self.assertIn("📰 По материалам: Колёса.ру", final_text)
-        self.assertIn("#autoyar076", final_text)
-        self.assertIn("#автоновости@autoyar076", final_text)
+        self.assertIn("🔥 Греем Мотор — подписывайтесь: vk.ru/greem_motor", final_text)
+        self.assertIn("#greem_motor", final_text)
+        self.assertIn("#автоновости@greem_motor", final_text)
+        self.assertNotIn("autoyar076", final_text)
         self.assertIn("#автоярославль", final_text)
 
     def test_gigachat_header_normalization_and_uuid_warning(self) -> None:
@@ -732,12 +734,12 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
                 self.assertIn("wall.pin", called_methods)
                 self.assertIn("Греем Мотор", sum_file.read_text(encoding="utf-8"))
 
-        # Проверяем переписывание уже выпущенного поста: старые теги #автоточка убираются, ставится #грееммотор
+        # Проверяем переписывание уже выпущенного поста: старые теги и адрес убираются, ставится vk.ru/greem_motor
         old_post = (
-            "🚗 Зима близко: в АвтоТочке разобрали выбор авто.\n\n"
+            "🚗 Зима близко: в АвтоТочке (vk.ru/autoyar076) разобрали выбор авто.\n\n"
             "Важные советы по выбору зимних машин в России.\n\n"
             "📰 По материалам: Motor.ru\n"
-            "#автоточка #автоточка76 #autoyar076"
+            "#автоточка #автоточка76 #autoyar076 #автосоветы@autoyar076"
         )
         rewritten = ai_writer.rewrite_existing_post_text(
             ai_writer.TemplateFallbackClient(),
@@ -746,9 +748,17 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
             category="tip",
         )
         self.assertIn("«Греем Мотор»", rewritten)
+        self.assertIn("vk.ru/greem_motor", rewritten)
         self.assertIn("#грееммотор", rewritten)
+        self.assertIn("#greem_motor", rewritten)
+        self.assertIn("#автосоветы@greem_motor", rewritten)
         self.assertNotIn("#автоточка", rewritten)
+        self.assertNotIn("autoyar076", rewritten)
         self.assertIn("📰 По материалам: Motor.ru", rewritten)
+
+        with patch.dict(os.environ, {"VK_GROUP": "https://vk.ru/autoyar076"}, clear=False):
+            self.assertEqual(vk_publisher.resolve_configured_vk_group(cfg), ("greem_motor", 85500918))
+
         self.assertEqual(
             setup_group_profile.extract_existing_photo_attachment(
                 {"attachments": [{"type": "photo", "photo": {"owner_id": -85500918, "id": 457239099}}]}
