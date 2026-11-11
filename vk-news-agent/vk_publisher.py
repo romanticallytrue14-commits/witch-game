@@ -11,6 +11,7 @@ import ssl
 import struct
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -348,32 +349,37 @@ class VKPublisher:
         last_net_err: Exception | None = None
         for base in VK_API_BASES:
             url = f"{base}/{method}"
-            req = urllib.request.Request(
-                url,
-                data=encoded,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "User-Agent": USER_AGENT,
-                },
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=30, context=self.ssl_ctx) as resp:
-                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
-                if "error" in data:
-                    err = data["error"]
-                    raise VKAPIError(
-                        int(err.get("error_code", 0)),
-                        str(err.get("error_msg", "Unknown VK error")),
-                        method=method,
-                    )
-                return data.get("response")
-            except VKAPIError:
-                raise
-            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-                last_net_err = exc
-                logger.warning("Сбой соединения с %s (%s), пробуем резервный хост...", base, exc)
-                continue
+            for rl_attempt in range(4):
+                req = urllib.request.Request(
+                    url,
+                    data=encoded,
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "User-Agent": USER_AGENT,
+                    },
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30, context=self.ssl_ctx) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                    if "error" in data:
+                        err = data["error"]
+                        err_code = int(err.get("error_code", 0))
+                        if err_code in {6, 10} and rl_attempt < 3:
+                            time.sleep(0.7 * (rl_attempt + 1))
+                            continue
+                        raise VKAPIError(
+                            err_code,
+                            str(err.get("error_msg", "Unknown VK error")),
+                            method=method,
+                        )
+                    return data.get("response")
+                except VKAPIError:
+                    raise
+                except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+                    last_net_err = exc
+                    logger.warning("Сбой соединения с %s (%s), пробуем резервный хост...", base, exc)
+                    break
 
         raise VKAPIError(-2, f"Сеть недоступна при вызове {method}: {last_net_err}", method=method)
 
