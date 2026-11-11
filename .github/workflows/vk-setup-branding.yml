@@ -1,4 +1,4 @@
-name: "АвтоТочка — Оформление группы ВК (в 1 клик)"
+name: "Греем Мотор — Оформление группы ВК (в 1 клик)"
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
       apply_info:
-        description: "Обновить название «АвтоТочка», тематику, статус и описание группы"
+        description: "Обновить название «Греем Мотор», тематику, статус и описание группы"
         required: false
         type: boolean
         default: true
@@ -28,6 +28,11 @@ on:
         required: false
         type: boolean
         default: true
+      rewrite_wall:
+        description: "Переписать уже выпущенные посты на стене под стиль «Греем Мотор»"
+        required: false
+        type: boolean
+        default: false
       backfill_photos:
         description: "Догрузить пропущенные фото к недавним постам на стене"
         required: false
@@ -44,7 +49,7 @@ permissions:
 
 jobs:
   setup-branding:
-    name: "Установка оформления «АвтоТочка» в vk.ru/autoyar076"
+    name: "Установка оформления «Греем Мотор» в vk.ru/autoyar076"
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -73,7 +78,7 @@ jobs:
             sudo apt-get update && sudo apt-get install -y --no-install-recommends imagemagick
           fi
 
-      - name: Применение оформления сообщества «АвтоТочка»
+      - name: Применение оформления сообщества «Греем Мотор»
         run: |
           ARGS=()
           if [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -90,6 +95,9 @@ jobs:
           fi
           if [ "${{ inputs.apply_pinned }}" = "false" ]; then
             ARGS+=(--skip-pinned)
+          fi
+          if [ "${{ inputs.rewrite_wall }}" = "true" ]; then
+            ARGS+=(--rewrite-wall)
           fi
           if [ "${{ inputs.backfill_photos }}" = "false" ]; then
             ARGS+=(--skip-backfill)

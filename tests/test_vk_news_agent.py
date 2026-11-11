@@ -612,13 +612,14 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
                 saved_state_after = json.loads(state_path.read_text(encoding="utf-8"))
                 self.assertEqual(saved_state_after["total_posts"], 1)
 
-    def test_avtotochka_branding_assets_and_vk_profile_installer(self) -> None:
+    def test_greem_motor_branding_assets_and_vk_profile_installer(self) -> None:
         import setup_group_profile
 
         cfg = agent.load_config(AGENT_DIR / "config.json")
-        self.assertEqual(cfg["group"]["title"], "АвтоТочка")
-        self.assertEqual(cfg["branding"]["title"], "АвтоТочка")
-        self.assertIn("#автоточка", cfg["posting"]["base_hashtags"])
+        self.assertEqual(cfg["group"]["title"], "Греем Мотор")
+        self.assertEqual(cfg["branding"]["title"], "Греем Мотор")
+        self.assertIn("#грееммотор", cfg["posting"]["base_hashtags"])
+        self.assertNotIn("#автоточка", cfg["posting"]["base_hashtags"])
 
         cover_info = vk_publisher.inspect_image_dimensions((AGENT_DIR / "branding" / "cover.jpg").read_bytes())
         avatar_info = vk_publisher.inspect_image_dimensions((AGENT_DIR / "branding" / "avatar.jpg").read_bytes())
@@ -642,7 +643,9 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
             body_str = (req.data or b"").decode("utf-8", errors="ignore")
             if "groups.getById" in url:
                 called_methods.append("groups.getById")
-                return FakeHTTPResponse(json.dumps({"response": {"groups": [{"id": 760076}]}}).encode("utf-8"))
+                return FakeHTTPResponse(
+                    json.dumps({"response": {"groups": [{"id": 760076, "name": "Греем Мотор"}]}}).encode("utf-8")
+                )
             if "groups.edit" in url:
                 called_methods.append("groups.edit")
                 self.assertIn("group_id=760076", body_str)
@@ -727,7 +730,31 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
                 self.assertIn("saveOwnerCoverPhoto", called_methods)
                 self.assertIn("saveOwnerPhoto", called_methods)
                 self.assertIn("wall.pin", called_methods)
-                self.assertIn("АвтоТочка", sum_file.read_text(encoding="utf-8"))
+                self.assertIn("Греем Мотор", sum_file.read_text(encoding="utf-8"))
+
+        # Проверяем переписывание уже выпущенного поста: старые теги #автоточка убираются, ставится #грееммотор
+        old_post = (
+            "🚗 Зима близко: в АвтоТочке разобрали выбор авто.\n\n"
+            "Важные советы по выбору зимних машин в России.\n\n"
+            "📰 По материалам: Motor.ru\n"
+            "#автоточка #автоточка76 #autoyar076"
+        )
+        rewritten = ai_writer.rewrite_existing_post_text(
+            ai_writer.TemplateFallbackClient(),
+            old_post,
+            cfg,
+            category="tip",
+        )
+        self.assertIn("«Греем Мотор»", rewritten)
+        self.assertIn("#грееммотор", rewritten)
+        self.assertNotIn("#автоточка", rewritten)
+        self.assertIn("📰 По материалам: Motor.ru", rewritten)
+        self.assertEqual(
+            setup_group_profile.extract_existing_photo_attachment(
+                {"attachments": [{"type": "photo", "photo": {"owner_id": -85500918, "id": 457239099}}]}
+            ),
+            "photo-85500918_457239099",
+        )
 
 
 if __name__ == "__main__":

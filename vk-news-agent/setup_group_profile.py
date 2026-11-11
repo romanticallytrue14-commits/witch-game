@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Автоматическая установка и обновление оформления группы ВКонтакте «АвтоТочка» (https://vk.ru/autoyar076)."""
+"""Автоматическая установка, ребрендинг и обновление оформления группы ВКонтакте «Греем Мотор» (https://vk.ru/autoyar076)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,13 @@ AGENT_DIR = Path(__file__).resolve().parent
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
 
-from agent import append_github_summary, load_config, load_fallback_editorial_card  # noqa: E402
+from agent import (  # noqa: E402
+    append_github_summary,
+    load_config,
+    load_fallback_editorial_card,
+    prepare_ai_image_for_post,
+)
+from ai_writer import create_ai_client, rewrite_existing_post_text  # noqa: E402
 from dedup_store import make_post_guid  # noqa: E402
 from news_fetcher import NewsCandidate, enrich_candidate_from_webpage  # noqa: E402
 from vk_publisher import (  # noqa: E402
@@ -60,6 +67,123 @@ def load_branding_state(state_path: Path) -> dict[str, Any]:
 def save_branding_state(state_path: Path, data: dict[str, Any]) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def extract_existing_photo_attachment(w_item: dict[str, Any]) -> str:
+    """Возвращает строку photo<owner_id>_<id> существующего фото поста, чтобы не потерять его при wall.edit."""
+    atts: list[str] = []
+    for att in w_item.get("attachments") or []:
+        if att.get("type") == "photo" and isinstance(att.get("photo"), dict):
+            ph = att["photo"]
+            oid = ph.get("owner_id")
+            pid = ph.get("id")
+            if oid is not None and pid is not None:
+                atts.append(f"photo{oid}_{pid}")
+    return ",".join(atts)
+
+
+def cleanup_avatar_service_posts(pub: VKPublisher, before_ts: float) -> int:
+    """Удаляет автоматический сервисный пост ВК об обновлении фото профиля группы."""
+    removed = 0
+    recent = pub.get_recent_wall_posts(count=6)
+    for it in recent:
+        if it.get("is_pinned"):
+            continue
+        pid = int(it.get("id") or 0)
+        p_date = float(it.get("date") or 0)
+        p_src = it.get("post_source") or {}
+        txt = str(it.get("text") or "").strip()
+        is_profile_photo = p_src.get("data") == "profile_photo" or (not txt and p_date >= before_ts - 15)
+        if pid > 0 and is_profile_photo and p_date >= before_ts - 30:
+            if pub.delete_wall_post(pid):
+                removed += 1
+    return removed
+
+
+def rewrite_existing_wall_posts(
+    pub: VKPublisher,
+    config: dict[str, Any],
+    published_state_path: Path,
+    wall_items: list[dict[str, Any]],
+    *,
+    pinned_post_id: int = 0,
+) -> list[dict[str, Any]]:
+    """Переписывает уже выпущенные посты на стене в фирменном стиле нового бренда с вычиткой ИИ."""
+    if not wall_items:
+        return []
+
+    by_post_id: dict[int, dict[str, Any]] = {}
+    if published_state_path.exists():
+        try:
+            pub_data = json.loads(published_state_path.read_text(encoding="utf-8"))
+            for entry in pub_data.get("items") or []:
+                pid = entry.get("vk_post_id")
+                if isinstance(pid, int) and pid > 0:
+                    by_post_id[pid] = entry
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    ai_client = create_ai_client(config, allow_template_fallback=True)
+    rewritten_reports: list[dict[str, Any]] = []
+
+    for w_item in wall_items:
+        pid = int(w_item.get("id") or 0)
+        if pid <= 0 or pid == pinned_post_id or w_item.get("is_pinned"):
+            continue
+        p_src = w_item.get("post_source") or {}
+        if p_src.get("data") == "profile_photo":
+            continue
+        existing_text = str(w_item.get("text") or "").strip()
+        if not existing_text:
+            continue
+
+        meta = by_post_id.get(pid) or {}
+        cat = str(meta.get("category") or "")
+        if not cat:
+            low = existing_text.lower()
+            if "#дорогиярославля" in low:
+                cat = "local_76"
+            elif "#автосоветы" in low or "#обслуживаниеавто" in low:
+                cat = "tip"
+            else:
+                cat = "news"
+        url = str(meta.get("url") or "")
+        title_hint = str(meta.get("title") or existing_text.splitlines()[0][:100])
+
+        new_text = rewrite_existing_post_text(
+            ai_client,
+            existing_text,
+            config,
+            category=cat,
+            source_url=url,
+        )
+
+        existing_att = extract_existing_photo_attachment(w_item)
+        new_img: PreparedImage | None = None
+        if not existing_att:
+            new_img = prepare_ai_image_for_post(
+                ai_client,
+                title=title_hint,
+                post_text=new_text,
+                category=cat,
+                config=config,
+            ) or load_fallback_editorial_card(config, cat)
+
+        try:
+            res = pub.edit_wall_post(pid, new_text, image=new_img, keep_attachments=existing_att)
+            logger.info("Пост #%d успешно переписан в стиле «Греем Мотор»!", pid)
+            rewritten_reports.append(
+                {
+                    "post_id": pid,
+                    "post_url": res["post_url"],
+                    "photo_attached": res["photo_attached"],
+                    "preview": new_text[:200],
+                }
+            )
+        except VKAPIError as exc:
+            logger.warning("Не удалось переписать пост #%d: %s", pid, exc)
+
+    return rewritten_reports
 
 
 def backfill_missing_wall_photos(
@@ -138,6 +262,8 @@ def apply_group_branding(
     publish_pinned: bool = True,
     force_new_pinned: bool = False,
     backfill_photos: bool = True,
+    rewrite_wall: bool = False,
+    save_verify_json: Path | None = None,
 ) -> int:
     config = load_config(config_path)
     group_cfg = config.get("group", {})
@@ -155,7 +281,7 @@ def apply_group_branding(
         or ""
     ).strip()
 
-    title = str(brand_cfg.get("title") or group_cfg.get("title") or "АвтоТочка")
+    title = str(brand_cfg.get("title") or group_cfg.get("title") or "Греем Мотор")
     subject = brand_cfg.get("subject", 1)
     status_text = str(brand_cfg.get("status") or "")
     description = str(brand_cfg.get("description") or "")
@@ -228,8 +354,10 @@ def apply_group_branding(
 
     if upload_avatar:
         try:
+            av_ts = time.time()
             ok_av = pub.upload_group_avatar(avatar_img.data)
             if ok_av:
+                cleanup_avatar_service_posts(pub, av_ts)
                 b_state["avatar_uploaded"] = True
                 save_branding_state(effective_b_state_path, b_state)
                 report_lines.append("- ✅ **Аватар сообщества (1024×1024)**: установлен")
@@ -242,14 +370,18 @@ def apply_group_branding(
             logger.warning("Не удалось загрузить аватар через API: %s", exc)
             report_lines.append(f"- ⚠️ **Аватар**: `{exc.vk_message}` (загрузите `branding/avatar.jpg` вручную)")
 
-    wall_items = pub.get_recent_wall_posts(count=20)
+    wall_items = pub.get_recent_wall_posts(count=30)
 
     if publish_pinned and pinned_text:
         existing_pin_id = int(b_state.get("pinned_post_id") or 0)
         if not force_new_pinned and wall_items:
             for w_it in wall_items:
                 txt = str(w_it.get("text") or "")
-                if "Добро пожаловать в «АвтоТочк" in txt or (w_it.get("is_pinned") and "#автоточка" in txt.lower()):
+                if (
+                    w_it.get("is_pinned")
+                    or "Добро пожаловать в «Греем Мотор" in txt
+                    or "Добро пожаловать в «АвтоТочк" in txt
+                ):
                     existing_pin_id = int(w_it.get("id") or existing_pin_id)
                     break
 
@@ -275,7 +407,7 @@ def apply_group_branding(
                 post_res = pub.publish_post(
                     pinned_text,
                     image=pinned_img,
-                    guid=make_post_guid(f"avtotochka-welcome-pin-{gid}"),
+                    guid=make_post_guid(f"greem-motor-welcome-pin-{gid}"),
                 )
                 post_id = int(post_res.get("post_id") or 0)
                 pinned_ok = pub.pin_wall_post(post_id) if post_id else False
@@ -291,17 +423,61 @@ def apply_group_branding(
                 logger.warning("Не удалось опубликовать закреплённый пост: %s", exc)
                 report_lines.append(f"- ⚠️ **Приветственный пост**: `{exc.vk_message}`")
 
+    rewritten_list: list[dict[str, Any]] = []
+    if rewrite_wall and wall_items:
+        rewritten_list = rewrite_existing_wall_posts(
+            pub,
+            config,
+            published_state_path,
+            wall_items,
+            pinned_post_id=int(b_state.get("pinned_post_id") or 0),
+        )
+        if rewritten_list:
+            report_lines.append(f"- ✅ **Переписаны выпущенные посты в стиле «{title}»**: `{len(rewritten_list)}` шт.")
+
     if backfill_photos and wall_items:
         patched = backfill_missing_wall_photos(pub, config, published_state_path, wall_items)
         if patched > 0:
             report_lines.append(f"- ✅ **Догружены фото к прошлым постам на стене**: `{patched}` шт.")
+
+    if save_verify_json is not None:
+        grp_raw = pub.call_api(
+            "groups.getById",
+            {"group_id": str(gid), "fields": "status,description,cover,has_photo"},
+            token=pub.vk_user_token or pub.vk_token,
+        )
+        g_list = grp_raw.get("groups") if isinstance(grp_raw, dict) else grp_raw
+        g0 = g_list[0] if isinstance(g_list, list) and g_list else {}
+        final_wall = pub.get_recent_wall_posts(count=10)
+        verify_payload = {
+            "group": {
+                "id": gid,
+                "name": g0.get("name"),
+                "status": g0.get("status"),
+                "description_head": str(g0.get("description") or "")[:180],
+                "cover_enabled": (g0.get("cover") or {}).get("enabled"),
+                "has_photo": g0.get("has_photo"),
+            },
+            "rewritten_count": len(rewritten_list),
+            "wall": [
+                {
+                    "id": w.get("id"),
+                    "is_pinned": bool(w.get("is_pinned")),
+                    "attachments": [a.get("type") for a in (w.get("attachments") or [])],
+                    "text": w.get("text") or "",
+                }
+                for w in final_wall
+            ],
+        }
+        save_verify_json.parent.mkdir(parents=True, exist_ok=True)
+        save_verify_json.write_text(json.dumps(verify_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     append_github_summary("\n".join(report_lines))
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Установка оформления сообщества ВКонтакте «АвтоТочка»")
+    p = argparse.ArgumentParser(description="Установка оформления сообщества ВКонтакте «Греем Мотор»")
     p.add_argument("--config", default=str(AGENT_DIR / "config.json"))
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--skip-info", action="store_true")
@@ -310,6 +486,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-pinned", action="store_true")
     p.add_argument("--force-new-pinned", action="store_true")
     p.add_argument("--skip-backfill", action="store_true")
+    p.add_argument("--rewrite-wall", action="store_true", help="Переписать существующие посты стены под новый бренд")
+    p.add_argument("--save-verify-json", default=None)
     return p
 
 
@@ -325,6 +503,8 @@ def main(argv: list[str] | None = None) -> int:
         publish_pinned=not args.skip_pinned,
         force_new_pinned=args.force_new_pinned,
         backfill_photos=not args.skip_backfill,
+        rewrite_wall=args.rewrite_wall,
+        save_verify_json=Path(args.save_verify_json) if args.save_verify_json else None,
     )
 
 
