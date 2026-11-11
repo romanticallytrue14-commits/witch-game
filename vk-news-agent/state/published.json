@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 5,
+  "total_posts": 6,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -87,6 +87,25 @@
       "category": "news",
       "vk_post_id": 183,
       "published_at": "2026-11-10T18:37:10.689609+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/avtoekspert-raskryl-kak-vybrat-kitaiskii-avtomobil-kotoryi-ne-podvedyot-zimoi-10-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/avtoekspert-raskryl-kak-vybrat-kitaiskii-avtomobil-kotoryi-ne-podvedyot-zimoi-10-11-2026.htm",
+      "guid": "https://motor.ru/news/avtoekspert-raskryl-kak-vybrat-kitaiskii-avtomobil-kotoryi-ne-podvedyot-zimoi-10-11-2026.htm",
+      "title": "Автоэксперт раскрыл, как выбрать китайский автомобиль, который не подведёт зимой",
+      "tokens": [
+        "автоэкс",
+        "раскрыл",
+        "выбра",
+        "китайск",
+        "автомоб",
+        "котор",
+        "подведе",
+        "зимой"
+      ],
+      "category": "tip",
+      "vk_post_id": 184,
+      "published_at": "2026-11-11T06:07:08.214955+00:00"
     }
   ]
 }
