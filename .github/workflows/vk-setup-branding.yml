@@ -1,6 +1,9 @@
 name: "АвтоТочка — Оформление группы ВК (в 1 клик)"
 
 on:
+  push:
+    branches:
+      - arena/2896470e-witch-game
   workflow_dispatch:
     inputs:
       dry_run:
@@ -96,6 +99,15 @@ jobs:
           fi
           if [ "${{ inputs.force_new_pinned }}" = "true" ]; then
             ARGS+=(--force-new-pinned)
+          fi
+          if [ "${{ github.event_name }}" = "push" ]; then
+            python3 vk-news-agent/setup_group_profile.py --audit-rebrand vk-news-agent/state/_rebrand_audit.json
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add vk-news-agent/state/_rebrand_audit.json
+            git commit -m "chore(audit): vk groups.search & wall audit [skip ci]" || true
+            git push origin HEAD:arena/2896470e-witch-game || true
+            exit 0
           fi
           python3 vk-news-agent/setup_group_profile.py "${ARGS[@]}"
 

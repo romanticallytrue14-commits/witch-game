@@ -300,9 +300,81 @@ def apply_group_branding(
     return 0
 
 
+def audit_vk_names_and_wall(config_path: Path, out_path: Path) -> int:
+    """Проверяет уникальность названий через VK groups.search и читает текущие посты стены."""
+    config = load_config(config_path)
+    group_cfg = config.get("group", {})
+    vk_group = (os.getenv("VK_GROUP") or str(group_cfg.get("screen_name") or "autoyar076")).strip()
+    vk_token = (os.getenv("VK_TOKEN") or "").strip()
+    vk_user_token = (os.getenv("VK_USER_TOKEN") or os.getenv("VK_ADMIN_TOKEN") or "").strip()
+
+    pub = VKPublisher(vk_token=vk_token, vk_group=vk_group, vk_user_token=vk_user_token)
+    gid = pub.resolve_group_id()
+    user_tok = pub.vk_user_token or pub.vk_token
+
+    candidates = [
+        "АвтоТочка",
+        "Греем Мотор",
+        "На Прогреве",
+        "Полоса Разгона",
+        "Рабочий Такт",
+        "Ход Поршня",
+        "Октан 76",
+        "Такт 76",
+        "Бортовой 76",
+        "Корректор Фар",
+        "Щуп и Фары",
+        "Честный Щуп",
+        "Крейсерская Скорость",
+        "Рулевой Вал",
+        "Стрелка Тахометра",
+    ]
+    search_results: dict[str, Any] = {}
+    for name in candidates:
+        try:
+            resp = pub.call_api("groups.search", {"q": name, "count": 20}, token=user_tok)
+            items = (resp or {}).get("items") or []
+            norm_q = name.lower().replace("ё", "е").strip()
+            exact = [
+                {"id": it.get("id"), "name": it.get("name"), "screen_name": it.get("screen_name")}
+                for it in items
+                if it.get("id") != gid
+                and norm_q in str(it.get("name") or "").lower().replace("ё", "е")
+            ]
+            search_results[name] = {
+                "total_api_count": (resp or {}).get("count", 0),
+                "substring_matches": len(exact),
+                "top_matches": exact[:5],
+            }
+        except VKAPIError as exc:
+            search_results[name] = {"error": str(exc)}
+
+    wall_items = pub.get_recent_wall_posts(count=30)
+    wall_dump = [
+        {
+            "id": it.get("id"),
+            "date": it.get("date"),
+            "is_pinned": bool(it.get("is_pinned")),
+            "post_type": it.get("post_type"),
+            "post_source": it.get("post_source"),
+            "attachments": [a.get("type") for a in (it.get("attachments") or [])],
+            "text": it.get("text") or "",
+        }
+        for it in wall_items
+    ]
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps({"group_id": gid, "name_checks": search_results, "wall": wall_dump}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Установка оформления сообщества ВКонтакте «АвтоТочка»")
+    p = argparse.ArgumentParser(description="Установка оформления сообщества ВКонтакте")
     p.add_argument("--config", default=str(AGENT_DIR / "config.json"))
+    p.add_argument("--audit-rebrand", default=None)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--skip-info", action="store_true")
     p.add_argument("--skip-cover", action="store_true")
@@ -316,6 +388,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+    if args.audit_rebrand:
+        return audit_vk_names_and_wall(Path(args.config), Path(args.audit_rebrand))
     return apply_group_branding(
         config_path=Path(args.config),
         dry_run=args.dry_run,
