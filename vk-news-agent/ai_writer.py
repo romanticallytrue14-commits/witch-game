@@ -759,9 +759,15 @@ def clean_markdown_for_vk(raw_text: str) -> str:
 
 
 def build_hashtags(config: dict[str, Any], category: str) -> str:
-    """Формирует аккуратную строку хештегов группы autoyar076 без повторов."""
+    """Формирует аккуратную строку хештегов сообщества greem_motor без повторов."""
     posting_cfg = config.get("posting", {})
-    base_tags = posting_cfg.get("base_hashtags", ["#autoyar076", "#автоярославль", "#авто76"])
+    group_cfg = config.get("group", {})
+    screen_name = str(group_cfg.get("screen_name") or "greem_motor").strip().lstrip("@") or "greem_motor"
+
+    base_tags = posting_cfg.get(
+        "base_hashtags",
+        ["#грееммотор", "#грееммотор76", f"#{screen_name}", "#автоярославль", "#авто76"],
+    )
     cat_map = posting_cfg.get("category_hashtags", {})
     extra_tags = cat_map.get(category, []) if isinstance(cat_map, dict) else []
 
@@ -774,6 +780,9 @@ def build_hashtags(config: dict[str, Any], category: str) -> str:
         if not tag.startswith("#"):
             tag = f"#{tag}"
         tag_norm = re.sub(r"[^#@a-zA-Zа-яА-ЯёЁ0-9_]", "", tag.lower())
+        tag_norm = tag_norm.replace("@autoyar076", f"@{screen_name.lower()}")
+        if tag_norm == "#autoyar076":
+            tag_norm = f"#{screen_name.lower()}"
         if len(tag_norm) <= 1 or tag_norm in seen:
             continue
         seen.add(tag_norm)
@@ -792,7 +801,15 @@ def finalize_vk_post(
 ) -> str:
     """Финальная сборка и проверка поста перед отправкой на стену ВК."""
     posting_cfg = config.get("posting", {})
+    group_cfg = config.get("group", {})
+    group_title = str(group_cfg.get("title") or "Греем Мотор").strip()
+    screen_name = str(group_cfg.get("screen_name") or "greem_motor").strip().lstrip("@") or "greem_motor"
+    group_short_link = f"vk.ru/{screen_name}"
+
     body = clean_markdown_for_vk(ai_text)
+    # Автоматическая замена прежнего короткого адреса группы, если он встретился в тексте
+    body = re.sub(r"(?:https?://)?(?:m\.)?vk\.(?:ru|com)/autoyar076\b", group_short_link, body, flags=re.IGNORECASE)
+    body = re.sub(r"@autoyar076\b", f"@{screen_name}", body, flags=re.IGNORECASE)
 
     # Ограничиваем длину основного текста, чтобы пост легко читался в ленте ВК
     if len(body) > 3300:
@@ -808,6 +825,9 @@ def finalize_vk_post(
 
     if source_url and posting_cfg.get("include_external_url_in_text", False):
         footer_lines.append(f"Подробнее: {source_url}")
+
+    if posting_cfg.get("include_group_signature", True) and group_short_link.lower() not in body.lower():
+        footer_lines.append(f"🔥 {group_title} — подписывайтесь: {group_short_link}")
 
     hashtags = build_hashtags(config, category)
     if hashtags:
@@ -1013,10 +1033,12 @@ def write_news_post(
     temperature = float(ai_cfg.get("temperature", 0.65))
     max_tokens = int(ai_cfg.get("max_tokens", 1200))
 
-    group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
+    group_cfg = config.get("group", {})
+    group_title = str(group_cfg.get("title", "Греем Мотор"))
+    group_url = str(group_cfg.get("url") or "https://vk.ru/greem_motor")
     system_prompt = (
         "Ты опытный автоэксперт и главный редактор узнаваемого автомобильного журнала ВКонтакте "
-        f"«{group_title}» (Ярославль и Ярославская область, 76 регион, https://vk.ru/autoyar076). "
+        f"«{group_title}» (Ярославль и Ярославская область, 76 регион, {group_url}). "
         "Концепция бренда «Греем Мотор» — тёплый, умный двухминутный выпуск, который водитель читает с интересом, "
         "пока прогревается двигатель.\n"
         "СТИЛЬ И ЮМОР:\n"
@@ -1137,6 +1159,8 @@ def rewrite_existing_post_text(
             if not detected_source:
                 detected_source = s.split(":", 1)[1].strip()
             continue
+        if s.startswith("🔥 Греем Мотор —") or s.startswith("Подробнее:"):
+            continue
         if s.startswith("#") and " " not in s.replace(" #", ""):
             continue
         if s.startswith("#") and all(tok.startswith("#") for tok in s.split()):
@@ -1145,6 +1169,8 @@ def rewrite_existing_post_text(
 
     clean_fact_base = "\n".join(lines).strip()
     clean_fact_base = re.sub(r"«?АвтоТочк[а-яА-ЯёЁ]*»?", "«Греем Мотор»", clean_fact_base, flags=re.IGNORECASE)
+    clean_fact_base = re.sub(r"(?:https?://)?(?:m\.)?vk\.(?:ru|com)/autoyar076\b", "vk.ru/greem_motor", clean_fact_base, flags=re.IGNORECASE)
+    clean_fact_base = re.sub(r"@autoyar076\b", "@greem_motor", clean_fact_base, flags=re.IGNORECASE)
 
     if isinstance(client, TemplateFallbackClient) or len(clean_fact_base) < 80:
         return finalize_vk_post(
@@ -1155,21 +1181,23 @@ def rewrite_existing_post_text(
             source_url=source_url,
         )
 
-    group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
+    group_cfg = config.get("group", {})
+    group_title = str(group_cfg.get("title", "Греем Мотор"))
+    group_url = str(group_cfg.get("url") or "https://vk.ru/greem_motor")
     system_prompt = (
-        f"Ты главный редактор автомобильного журнала ВКонтакте «{group_title}» (Ярославль и 76 регион, https://vk.ru/autoyar076). "
-        "Твоя задача — заново, свежо и авторски переписать уже опубликованный пост в нашем новом узнаваемом стиле.\n"
+        f"Ты главный редактор автомобильного журнала ВКонтакте «{group_title}» (Ярославль и 76 регион, {group_url}). "
+        "Твоя задача — заново, свежо и авторски переписать уже опубликованный пост в нашем фирменном стиле.\n"
         "ФИРМЕННЫЙ ПОЧЕРК «ГРЕЕМ МОТОР»:\n"
         "- Живой двухминутный выпуск, который приятно прочитать утром или вечером, пока прогревается двигатель.\n"
         "- Вплети 1–2 тонких, остроумных и добрых ироничных наблюдения из реального быта автомобилиста "
-        "(например, что три огромных экрана в салоне плохо согревают ладони в −25 °C, если печка дует прохладой, или что таксопарк за одну зиму проверяет подвеску честнее любого полигона). "
+        "(например, что три огромных экрана в салоне плохо согревают ладони в −25 °C, если печка дует прохладой, или что русская зима проверяет оцинковку и аккумулятор честнее любого буклета). "
         "ВАЖНО: если пост про тяжёлое ДТП — пиши спокойно и уважительно без юмора.\n"
         "- Обращайся к подписчикам единообразно и уважительно на «вы» (никакого смешения «ты» и «вы»).\n"
         "- Сохрани реальные факты, имена экспертов, марки и цифры из исходного текста, ничего не выдумывая от себя.\n"
-        "- Строго без Markdown (**звёздочек**, ### заголовков), без казённых подзаголовков вроде «Вопрос читателям:» или «Делимся опытом:», "
-        "без внешних ссылок и без хештегов (хештеги система добавит сама).\n"
-        "- Структура: цепляющий заголовок с 1–2 эмодзи -> связный живой рассказ по сути (2 коротких абзаца без лишних подзаголовков) -> "
-        "практический блок «💡 На заметку водителю:» (2–3 чётких пункта через тире) -> живой вопрос подписчикам в конце."
+        "- Строго без Markdown (**звёздочек**, ### заголовков), без казённых подзаголовков вроде «Вопрос опытным водителям:», "
+        "«Делимся опытом:» или «Но не всё так однозначно», без внешних ссылок и без хештегов (подпись с адресом группы и хештеги система добавит сама внизу).\n"
+        "- Структура: цепляющий заголовок с 1–2 эмодзи -> связный живой рассказ по сути в 2 коротких абзацах без дробления на подзаголовки -> "
+        "практический блок «💡 На заметку водителю:» (2–3 чётких пункта через тире) -> живой вопрос подписчикам в конце обычным абзацем без подзаголовка."
     )
     user_prompt = (
         f"КАТЕГОРИЯ: {category}\n"

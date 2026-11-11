@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Главный модуль автономного новостного ИИ-агента для группы ВК https://vk.ru/autoyar076."""
+"""Главный модуль автономного новостного ИИ-агента для группы ВК https://vk.ru/greem_motor."""
 
 from __future__ import annotations
 
@@ -42,6 +42,7 @@ from vk_publisher import (  # noqa: E402
     convert_webp_to_jpeg,
     download_and_prepare_image,
     inspect_image_dimensions,
+    resolve_configured_vk_group,
 )
 
 logger = logging.getLogger("vk_news_agent")
@@ -183,10 +184,7 @@ def run_agent(
     posting_cfg = config.get("posting", {})
     group_cfg = config.get("group", {})
 
-    vk_group = (
-        os.getenv("VK_GROUP")
-        or str(group_cfg.get("screen_name") or group_cfg.get("url") or "autoyar076")
-    ).strip()
+    vk_group, fallback_gid = resolve_configured_vk_group(config)
     vk_token = (os.getenv("VK_TOKEN") or "").strip()
     vk_user_token = (os.getenv("VK_USER_TOKEN") or "").strip()
 
@@ -218,6 +216,7 @@ def run_agent(
             vk_token=vk_token,
             vk_group=vk_group,
             vk_user_token=vk_user_token,
+            fallback_group_id=fallback_gid,
         )
         wall_check_count = int(posting_cfg.get("wall_dedup_check_count", 30))
         if wall_check_count > 0:
@@ -461,7 +460,7 @@ def run_agent(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Автономный новостной ИИ-агент для сообщества ВКонтакте https://vk.ru/autoyar076"
+        description="Автономный новостной ИИ-агент для сообщества ВКонтакте https://vk.ru/greem_motor"
     )
     parser.add_argument(
         "--config",
@@ -521,11 +520,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def run_diagnostics(config_path: Path, report_path: Path) -> int:
     config = load_config(config_path)
-    group_cfg = config.get("group", {})
-    vk_group = (
-        os.getenv("VK_GROUP")
-        or str(group_cfg.get("screen_name") or group_cfg.get("url") or "autoyar076")
-    ).strip()
+    vk_group, fallback_gid = resolve_configured_vk_group(config)
     vk_token = (os.getenv("VK_TOKEN") or "").strip()
     vk_user_token = (os.getenv("VK_USER_TOKEN") or "").strip()
 
@@ -555,7 +550,12 @@ def run_diagnostics(config_path: Path, report_path: Path) -> int:
 
     # 2. Тест ВК (только безопасное чтение прав без публикации)
     if vk_token:
-        pub = VKPublisher(vk_token=vk_token, vk_group=vk_group, vk_user_token=vk_user_token)
+        pub = VKPublisher(
+            vk_token=vk_token,
+            vk_group=vk_group,
+            vk_user_token=vk_user_token,
+            fallback_group_id=fallback_gid,
+        )
         try:
             report["vk"] = pub.diagnose_capabilities()
         except Exception as exc:  # noqa: BLE001
