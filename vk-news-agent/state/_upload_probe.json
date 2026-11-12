@@ -1,18 +1,4 @@
 {
-  "market_album_photo": {
-    "ok": false,
-    "error": "VK API error 27 в методе photos.getMarketAlbumUploadServer: Group authorization failed: method is unavailable with group auth."
-  },
-  "market_photo": {
-    "ok": false,
-    "error": "VK API error 27 в методе photos.getMarketUploadServer: Group authorization failed: method is unavailable with group auth."
-  },
-  "photos.getAlbums": {
-    "ok": false,
-    "error": "VK API error 27 в методе photos.getAlbums: Group authorization failed: method is unavailable with group auth."
-  },
-  "photos.getUploadServer": {
-    "ok": false,
-    "error": "VK API error 27 в методе photos.getUploadServer: Group authorization failed: method is unavailable with group auth."
-  }
+  "fatal": "run_agent() got an unexpected keyword argument 'max_posts'",
+  "trace": "Traceback (most recent call last):\n  File \"/home/runner/work/witch-game/witch-game/vk-news-agent/_probe_upload.py\", line 26, in main\n    rc = agent.run_agent(\n         ^^^^^^^^^^^^^^^^\nTypeError: run_agent() got an unexpected keyword argument 'max_posts'\n"
 }
