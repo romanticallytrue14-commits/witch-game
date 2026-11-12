@@ -174,13 +174,75 @@ def get_wall(screen: str, count: int, tokens: list[str | None], notes: list[str]
     return None
 
 
-def scrape_wall(screen: str, notes: list[str]) -> list[dict[str, Any]]:
-    """Best-effort попытка достать записи со страницы сообщества без API."""
+MARKER_PATTERNS = {
+    "wall_post": r"wall_post",
+    "post_item": r"post_item",
+    "wall_item": r"wall_item",
+    "class=post": r'class="post\b',
+    "Post component": r"\bPost\b",
+    "data-date": r"data-date=",
+    "publish_date": r"publish_date",
+    "post_source": r"post_source",
+    "__PRELOADED_STATE__": r"__PRELOADED_STATE__",
+    "replies": r"\breplies\b",
+    "captcha/security": r"captcha|security check|Проверка безопасности|подтвердите, что вы человек",
+    "window.__": r"window\.[A-Za-z_$][\w$]*\s*=",
+}
+
+
+def _visible_text(html: str, limit: int = 900) -> str:
+    body = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
+    body = re.sub(r"<[^>]+>", " ", body)
+    body = re.sub(r"\s+", " ", body).strip()
+    return body[:limit]
+
+
+def scrape_wall(screen: str, notes: list[str], group_id: int | None = None) -> list[dict[str, Any]]:
+    """Best-effort попытка достать записи со страницы сообщества без API.
+
+    Помимо самих записей наполняет `notes` диагностикой: что именно вернула
+    страница (заголовок, маркеры разметки, найденные даты) — чтобы понять,
+    реальная ли это стена страницы или заглушка/капча.
+    """
+    urls = [f"https://m.vk.com/{screen}", f"https://vk.com/{screen}", f"https://vk.com/{screen}?own=1"]
+    if group_id:
+        urls.append(f"https://vk.com/wall-{group_id}")
+
     posts: list[dict[str, Any]] = []
-    for url in (f"https://vk.com/{screen}", f"https://m.vk.com/{screen}"):
+    for url in urls:
         html = fetch_html(url)
         if not html:
+            notes.append(f"страница {url} недоступна")
             continue
+
+        title = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
+        title_txt = re.sub(r"\s+", " ", title.group(1)).strip() if title else "?"
+        markers = {name: len(re.findall(pat, html, re.I)) for name, pat in MARKER_PATTERNS.items()}
+        marker_str = ", ".join(f"{k}={v}" for k, v in markers.items() if v)
+        notes.append(f"{url}: {len(html)} байт, title={title_txt!r}; маркеры: {marker_str or 'нет'}")
+
+        # Все правдоподобные даты (unix10 цифр, 2020–2030) с контекстом.
+        dated: list[tuple[int, str]] = []
+        for m in re.finditer(r"\b(1[6-9]\d{9})\b", html):
+            ts = int(m.group(1))
+            if not (1577836800 <= ts <= 1893456000):  # 2020-01-01 … 2030-01-01
+                continue
+            ctx = re.sub(r"\s+", " ", html[max(0, m.start() - 90) : m.end() + 90])
+            ctx = re.sub(r"<[^>]+>", " ", ctx)
+            dated.append((ts, ctx.strip()[:180]))
+        seen_ts: set[int] = set()
+        uniq: list[tuple[int, str]] = []
+        for ts, ctx in sorted(dated, key=lambda x: -x[0]):
+            if ts in seen_ts:
+                continue
+            seen_ts.add(ts)
+            uniq.append((ts, ctx))
+        if uniq:
+            notes.append(
+                "кандидаты дат на странице: "
+                + "; ".join(f"{fmt_ts(ts)} «{ctx}»" for ts, ctx in uniq[:8])
+            )
+
         # 1) Иногда VK встраивает состояние страницы в JSON.
         m = re.search(r"__PRELOADED_STATE__\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
         if m:
@@ -198,16 +260,25 @@ def scrape_wall(screen: str, notes: list[str]) -> list[dict[str, Any]]:
                         )
             except json.JSONDecodeError:
                 pass
+
         # 2) Грубый поиск блоков записей в HTML.
         if not posts:
-            for chunk in re.split(r'(?=<div[^>]+class="[^"]*(?:wall_post|post_item)[^"]*")', html):
-                dm = re.search(r'"date"\s*:\s*(\d{10})|data-date="(\d{10})"', chunk)
+            for chunk in re.split(r'(?=<div[^>]+class="[^"]*(?:wall_post|post_item|wall_item|post\b)[^"]*")', html):
+                dm = re.search(r'"date"\s*:\s*(\d{10})|data-date="(\d{10})"|date="(\d{10})"', chunk)
                 if not dm:
                     continue
-                ts = int(dm.group(1) or dm.group(2))
+                ts = int(dm.group(1) or dm.group(2) or dm.group(3))
+                if not (1577836800 <= ts <= 1893456000):
+                    continue
                 text = re.sub(r"<[^>]+>", " ", chunk)
                 text = re.sub(r"\s+", " ", text).strip()[:300]
+                if len(text) < 10:
+                    continue
                 posts.append({"date": ts, "text": text, "post_source": {}, "id": None})
+
+        # 3) Диагностика: что вообще за страница (первый экран текста).
+        notes.append(f"{url}: первые символы текста — «{_visible_text(html)}»")
+
         if posts:
             notes.append(f"записи получены скрапингом {url} (не через API)")
             break
@@ -413,7 +484,11 @@ def audit_one(screen: str, tokens: list[str | None], count: int) -> str:
     group = get_group_info(screen, tokens, notes)
     posts = get_wall(screen, count, tokens, notes)
     if posts is None:
-        posts = scrape_wall(screen, notes)
+        gid = None
+        if group:
+            raw_gid = group.get("id") or group.get("group_id")
+            gid = int(raw_gid) if raw_gid else None
+        posts = scrape_wall(screen, notes, group_id=gid)
         if posts:
             notes.append("API недоступен/закрыт — использован запасной способ чтения стены")
         else:
