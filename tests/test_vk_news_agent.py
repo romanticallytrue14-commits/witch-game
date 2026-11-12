@@ -552,7 +552,28 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
             ["groups.getById", "photos.getWallUploadServer", "upload_binary", "photos.saveWallPhoto", "wall.post"],
         )
 
-        # Сценарий 2: ключ сообщества возвращает Error 27 на photos.getWallUploadServer — пост всё равно успешно выходит текстом!
+        # Сценарий 2а: require_photo=True при Flood control (код 9) мгновенно срабатывает предохранитель
+        # (ровно 1 попытка без 3x повторов!) и НЕ публикует «голый» текст без картинки!
+        flood_calls: list[str] = []
+
+        def fake_urlopen_flood_strict(req, timeout=30, context=None):
+            url = req.full_url
+            if "photos.getWallUploadServer" in url:
+                flood_calls.append("photos.getWallUploadServer")
+                return FakeHTTPResponse(
+                    json.dumps({"error": {"error_code": 9, "error_msg": "Flood control"}}).encode("utf-8")
+                )
+            if "wall.post" in url:
+                raise AssertionError("wall.post НЕ должен вызываться при require_photo=True без картинки!")
+            raise AssertionError(f"Unexpected URL: {url}")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen_flood_strict):
+            with self.assertRaises(vk_publisher.VKPhotoUploadUnavailableError):
+                pub.publish_post("Пост не должен выйти без фото", image=img, guid="guid-strict", require_photo=True)
+
+        self.assertEqual(flood_calls, ["photos.getWallUploadServer"])
+
+        # Сценарий 2б: при require_photo=False (явный --allow-no-photo) пост может выйти текстом
         def fake_urlopen_group_token(req, timeout=30, context=None):
             url = req.full_url
             if "photos.getWallUploadServer" in url:
@@ -567,14 +588,152 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
                     ).encode("utf-8")
                 )
             if "wall.post" in url:
-                return FakeHTTPResponse(json.dumps({"response": {"post_id": 9002}}).encode("utf-8"))
+                return FakeHTTPResponse(json.dumps({"response": {"post_id": 9003}}).encode("utf-8"))
             raise AssertionError(f"Unexpected URL: {url}")
 
         with patch("urllib.request.urlopen", side_effect=fake_urlopen_group_token):
-            res2 = pub.publish_post("Пост по ключу сообщества", image=img, guid="guid-2")
+            res2 = pub.publish_post("Пост по ключу сообщества", image=img, guid="guid-2", require_photo=False)
 
-        self.assertEqual(res2["post_id"], 9002)
+        self.assertEqual(res2["post_id"], 9003)
         self.assertFalse(res2["photo_attached"])
+
+    def test_require_photo_defers_agent_and_auto_backfills_missing_photos(self) -> None:
+        import urllib.parse
+        import audit_group
+
+        with patch.dict(
+            os.environ,
+            {
+                "VK_USER_TOKEN": "https://oauth.vk.com/blank.html#access_token=vk1.a.clean_user_tok&expires_in=0&user_id=777",
+                "VK_TOKEN": "vk1.a.group_tok",
+            },
+            clear=True,
+        ):
+            picked = audit_group.pick_tokens()
+            self.assertEqual(picked[0], "vk1.a.clean_user_tok")
+            self.assertEqual(picked[1], "vk1.a.group_tok")
+
+        sample_wall_html = (
+            '<html><body><div data-post=\'{"id":191,"owner_id":-85500918,"from_id":-85500918,'
+            '"date":1794503381,"attachments":[],"text":"Старый текст #191"}\'></div></body></html>'
+        ).encode("utf-8")
+
+        # 1) При Flood Control (код 9) агент откладывает публикацию и НЕ создаёт пост без картинки
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "published.json"
+            summary_path = Path(tmpdir) / "summary.md"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "total_posts": 1,
+                        "used_evergreen_ids": [],
+                        "items": [
+                            {
+                                "url": "https://76.ru/text/transport/2026/11/12/76761061/",
+                                "normalized_url": "https://76.ru/text/transport/2026/11/12/76761061",
+                                "guid": "76761061",
+                                "title": "На трассе М-8 в Ярославской области изменят движение из-за ремонта",
+                                "tokens": ["трасс", "м-8", "ярослав", "ремонт"],
+                                "category": "local_76",
+                                "vk_post_id": 191,
+                                "photo_attached": False,
+                                "backfill_text": "Обновлённый точный текст М-8",
+                                "published_at": "2026-11-12T17:09:43+00:00",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_flood_run(req, timeout=30, context=None):
+                url = req.full_url
+                if "groups.getById" in url:
+                    return FakeHTTPResponse(json.dumps({"response": {"groups": [{"id": 85500918}]}}).encode("utf-8"))
+                if "vk.com/wall-85500918" in url:
+                    return FakeHTTPResponse(sample_wall_html, {"Content-Type": "text/html; charset=utf-8"}, url)
+                if "wall.get" in url:
+                    raise AssertionError("wall.get НЕ должен расходовать лимит VK_USER_TOKEN в регулярном запуске!")
+                if "photos.getWallUploadServer" in url:
+                    return FakeHTTPResponse(
+                        json.dumps({"error": {"error_code": 9, "error_msg": "Flood control"}}).encode("utf-8")
+                    )
+                if "wall.post" in url:
+                    raise AssertionError("wall.post НЕ должен вызываться при Flood control на фото!")
+                raise AssertionError(f"Unhandled URL: {url}")
+
+            env_patch = {
+                "VK_TOKEN": "vk1.a.group_tok",
+                "VK_USER_TOKEN": "vk1.a.user_tok",
+                "AI_PROVIDER": "template",
+                "GITHUB_STEP_SUMMARY": str(summary_path),
+            }
+            with patch.dict(os.environ, env_patch, clear=False), patch(
+                "urllib.request.urlopen", side_effect=fake_flood_run
+            ):
+                rc = agent.run_agent(
+                    config_path=AGENT_DIR / "config.json",
+                    state_path=state_path,
+                    dry_run=False,
+                    max_posts_override=1,
+                )
+            self.assertEqual(rc, 0)
+            self.assertIn("Публикация отложена", summary_path.read_text(encoding="utf-8"))
+
+            # 2) Как только лимит ВК снят — агент автоматически догружает фото к посту #191 через wall.edit
+            # с обновлённым текстом backfill_text и помечает photo_attached=True!
+            edited_calls: list[str] = []
+
+            def fake_recovered_run(req, timeout=30, context=None):
+                url = req.full_url
+                if "groups.getById" in url:
+                    return FakeHTTPResponse(json.dumps({"response": {"groups": [{"id": 85500918}]}}).encode("utf-8"))
+                if "vk.com/wall-85500918" in url:
+                    return FakeHTTPResponse(sample_wall_html, {"Content-Type": "text/html; charset=utf-8"}, url)
+                if "photos.getWallUploadServer" in url:
+                    return FakeHTTPResponse(
+                        json.dumps({"response": {"upload_url": "https://pu.vk.ru/upload"}}).encode("utf-8")
+                    )
+                if "pu.vk.ru/upload" in url:
+                    return FakeHTTPResponse(
+                        json.dumps({"server": 1, "photo": '[{"ok":1}]', "hash": "h1"}).encode("utf-8")
+                    )
+                if "photos.saveWallPhoto" in url:
+                    return FakeHTTPResponse(
+                        json.dumps({"response": [{"owner_id": -85500918, "id": 999191}]}).encode("utf-8")
+                    )
+                if "wall.edit" in url:
+                    body_str = urllib.parse.unquote_plus((req.data or b"").decode("utf-8"))
+                    edited_calls.append(body_str)
+                    return FakeHTTPResponse(json.dumps({"response": {"post_id": 191}}).encode("utf-8"))
+                if any(feed in url for feed in ("kolesa.ru", "5koleso.ru", "motor.ru", "drom.ru", "76.ru", "news.google.com")):
+                    empty_rss = b'<?xml version="1.0" encoding="utf-8"?><rss version="2.0"><channel></channel></rss>'
+                    return FakeHTTPResponse(empty_rss, {"Content-Type": "application/xml"}, url)
+                if "wall.post" in url:
+                    return FakeHTTPResponse(json.dumps({"response": {"post_id": 193}}).encode("utf-8"))
+                raise AssertionError(f"Unhandled URL: {url}")
+
+            with patch.dict(os.environ, env_patch, clear=False), patch(
+                "urllib.request.urlopen", side_effect=fake_recovered_run
+            ):
+                rc2 = agent.run_agent(
+                    config_path=AGENT_DIR / "config.json",
+                    state_path=state_path,
+                    dry_run=False,
+                    mode="news",
+                    max_posts_override=1,
+                )
+            self.assertEqual(rc2, 0)
+            self.assertEqual(len(edited_calls), 1)
+            self.assertIn("post_id=191", edited_calls[0])
+            self.assertIn("photo-85500918_999191", edited_calls[0])
+            self.assertIn("Обновлённый точный текст М-8", edited_calls[0])
+            updated_state = json.loads(state_path.read_text(encoding="utf-8"))
+            p191_entry = next(it for it in updated_state["items"] if it["vk_post_id"] == 191)
+            self.assertTrue(p191_entry["photo_attached"])
+            self.assertNotIn("backfill_text", p191_entry)
 
     def test_end_to_end_agent_run_and_workflow_file(self) -> None:
         workflow_path = REPO_ROOT / ".github" / "workflows" / "vk-news-agent.yml"

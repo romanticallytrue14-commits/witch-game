@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 11,
+  "total_posts": 12,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -177,6 +177,7 @@
       ],
       "category": "news",
       "vk_post_id": 190,
+      "photo_attached": false,
       "published_at": "2026-11-12T11:12:12.159266+00:00"
     },
     {
@@ -195,7 +196,30 @@
       ],
       "category": "local_76",
       "vk_post_id": 191,
+      "photo_attached": false,
+      "backfill_text": "🛣 На трассе М-8 в Ярославской области изменят схему движения из-за ремонта\n\nВодителей, чьи маршруты проходят по федеральной трассе М-8 «Холмогоры» в Ярославской области, предупредили о временных ограничениях. Из-за дорожных работ на ремонтируемом участке изменится привычная схема проезда.\n\nНа время работы дорожной техники проезжую часть сузят и установят временные знаки со снижением скорости. В утренние и вечерние часы пик здесь возможны заторы, поэтому закладывайте небольшой запас времени перед выездом.\n\n💡 Будьте внимательны к временной разметке и указателям дорожных служб, особенно в сумерках и в дождливую погоду.\n\nА вы часто ездите по М-8 в сторону Москвы или Ростова Великого? Делитесь дорожной обстановкой в комментариях 👇\n\n📰 По материалам: 76.ру (Ярославль)\n🔥 Греем Мотор — подписывайтесь: vk.ru/greem_motor\n#грееммотор #грееммотор76 #greem_motor #автоярославль #авто76 #дорогиярославля@greem_motor #дорогиярославля #ярославскаяобласть",
       "published_at": "2026-11-12T17:09:43.223375+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/avtoekspert-rogov-nazval-tri-sedana-kotorye-rossiyane-chashe-vsego-zakazyvayut-iz-korei-i-kitaya-11-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/avtoekspert-rogov-nazval-tri-sedana-kotorye-rossiyane-chashe-vsego-zakazyvayut-iz-korei-i-kitaya-11-11-2026.htm",
+      "guid": "https://motor.ru/news/avtoekspert-rogov-nazval-tri-sedana-kotorye-rossiyane-chashe-vsego-zakazyvayut-iz-korei-i-kitaya-11-11-2026.htm",
+      "title": "Автоэксперт Рогов назвал три седана, которые россияне чаще всего заказывают из Кореи и Китая",
+      "tokens": [
+        "автоэкс",
+        "рог",
+        "седа",
+        "котор",
+        "россиян",
+        "чащ",
+        "заказыв",
+        "коре",
+        "кит"
+      ],
+      "category": "tip",
+      "vk_post_id": 192,
+      "photo_attached": false,
+      "published_at": "2026-11-12T20:21:51.216632+00:00"
     }
   ]
 }

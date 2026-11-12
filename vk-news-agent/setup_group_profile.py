@@ -248,6 +248,9 @@ def backfill_missing_wall_photos(
     config: dict[str, Any],
     published_state_path: Path,
     wall_items: list[dict[str, Any]],
+    *,
+    ai_client: Any | None = None,
+    max_updates: int | None = None,
 ) -> int:
     """Догружает пропущенные фото к недавним постам на стене (в пределах окна редактирования ВК)."""
     if not wall_items or not published_state_path.exists():
@@ -263,26 +266,50 @@ def backfill_missing_wall_photos(
         if isinstance(pid, int) and pid > 0:
             by_post_id[pid] = entry
 
+    image_mode = str((config.get("posting") or {}).get("image_mode", "ai_only")).strip().lower()
+    if ai_client is None and image_mode in {"ai_only", "ai_then_source"}:
+        try:
+            ai_client = create_ai_client(config, allow_template_fallback=True)
+        except Exception:  # noqa: BLE001
+            ai_client = None
+
     updated = 0
+    state_dirty = False
     for w_item in wall_items:
+        if max_updates is not None and updated >= max_updates:
+            break
         pid = int(w_item.get("id") or 0)
         if pid not in by_post_id:
             continue
+        meta = by_post_id[pid]
         if w_item.get("attachments"):
+            if meta.get("photo_attached") is False:
+                meta["photo_attached"] = True
+                meta.pop("backfill_text", None)
+                state_dirty = True
             continue
-        existing_text = str(w_item.get("text") or "").strip()
+
+        existing_text = str(meta.get("backfill_text") or w_item.get("text") or "").strip()
         if not existing_text:
             continue
 
-        meta = by_post_id[pid]
         url = str(meta.get("url") or "")
         cat = str(meta.get("category") or "news")
+        title_hint = str(meta.get("title") or existing_text.splitlines()[0][:120])
         prep_img: PreparedImage | None = None
 
-        image_mode = str((config.get("posting") or {}).get("image_mode", "ai_only")).strip().lower()
-        if image_mode != "ai_only" and url.startswith(("http://", "https://")):
+        if ai_client is not None and image_mode in {"ai_only", "ai_then_source"}:
+            prep_img = prepare_ai_image_for_post(
+                ai_client,
+                title=title_hint,
+                post_text=existing_text,
+                category=cat,
+                config=config,
+            )
+
+        if prep_img is None and image_mode != "ai_only" and url.startswith(("http://", "https://")):
             cand = NewsCandidate(
-                title=str(meta.get("title") or ""),
+                title=title_hint,
                 url=url,
                 source_name="source",
                 category=cat,
@@ -301,9 +328,21 @@ def backfill_missing_wall_photos(
             res = pub.edit_wall_post(pid, existing_text, image=prep_img)
             if res.get("photo_attached"):
                 updated += 1
+                meta["photo_attached"] = True
+                meta.pop("backfill_text", None)
+                state_dirty = True
                 logger.info("К существующему посту #%d успешно прикреплено фото!", pid)
+            elif pub.last_photo_error and pub.last_photo_error.code in {5, 9, 15, 27, 28, 29}:
+                break
         except VKAPIError as exc:
             logger.warning("Не удалось обновить фото у поста #%d: %s", pid, exc)
+            if exc.code in {5, 9, 15, 27, 28, 29}:
+                break
+
+    if state_dirty:
+        tmp_path = published_state_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(pub_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp_path, published_state_path)
 
     return updated
 
@@ -433,7 +472,7 @@ def apply_group_branding(
             logger.warning("Не удалось загрузить аватар через API: %s", exc)
             report_lines.append(f"- ⚠️ **Аватар**: `{exc.vk_message}` (загрузите `branding/avatar.jpg` вручную)")
 
-    wall_items = pub.get_recent_wall_posts(count=30)
+    wall_items = pub.get_recent_wall_posts(count=30, use_user_token=True)
 
     if publish_pinned and pinned_text:
         existing_pin_id = int(b_state.get("pinned_post_id") or 0)

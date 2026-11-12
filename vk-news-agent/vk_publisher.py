@@ -40,6 +40,11 @@ class VKAPIError(RuntimeError):
         super().__init__(f"VK API error {code} в методе {method}: {message}")
 
 
+class VKPhotoUploadUnavailableError(VKAPIError):
+    """Исключение: загрузка фото на стену временно недоступна (например, Flood control), а режим требует обязательную картинку."""
+
+
+
 @dataclass
 class PreparedImage:
     """Проверенное и готовое к загрузке в ВК изображение."""
@@ -369,6 +374,15 @@ class VKPublisher:
         self.fallback_group_id = abs(int(fallback_group_id)) if fallback_group_id else None
         self.ssl_ctx = ssl.create_default_context()
         self._resolved_group_id: int | None = None
+        self._user_token_disabled: bool = False
+        self._cached_wall_upload_url: str = ""
+        self.last_photo_error: VKAPIError | None = None
+
+    def _active_user_token(self) -> str:
+        """Возвращает пользовательский токен, если он задан и не заблокирован Flood Control / истечением сессии."""
+        if self._user_token_disabled:
+            return ""
+        return self.vk_user_token
 
     def call_api(self, method: str, params: dict[str, Any], token: str | None = None) -> Any:
         """Вызывает метод VK API на api.vk.ru с резервным переключением на api.vk.com."""
@@ -471,10 +485,133 @@ class VKPublisher:
             method="resolve_group_id",
         )
 
-    def get_recent_wall_posts(self, count: int = 30) -> list[dict[str, Any]]:
-        """Читает последние посты со стены группы для дополнительной защиты от повторов."""
+    def fetch_public_wall_posts(self, count: int = 30) -> list[dict[str, Any]]:
+        """Читает посты с публичной страницы стены vk.com/wall-{group_id} без расхода лимитов VK_USER_TOKEN."""
+        import html as html_mod
+
         group_id = self.resolve_group_id()
-        token_for_read = self.vk_user_token or self.vk_token
+        url = f"https://vk.com/wall-{group_id}"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": USER_AGENT, "Accept-Language": "ru"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=25, context=self.ssl_ctx) as resp:
+                raw_bytes = resp.read()
+                ctype = resp.headers.get("Content-Type", "")
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            logger.debug("Не удалось загрузить публичную стену %s: %s", url, exc)
+            return []
+
+        charset = "utf-8"
+        m_enc = re.search(r"charset=([\w-]+)", ctype, re.I)
+        if m_enc:
+            charset = m_enc.group(1).lower()
+        html_str = ""
+        for enc in (charset, "utf-8", "windows-1251"):
+            try:
+                html_str = raw_bytes.decode(enc)
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if not html_str:
+            html_str = raw_bytes.decode("utf-8", errors="replace")
+
+        unesc = html_mod.unescape(html_str)
+
+        def _match_json_brace(s: str, start: int) -> int | None:
+            depth = 0
+            idx = start
+            in_str = False
+            esc = False
+            while idx < len(s):
+                ch = s[idx]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                else:
+                    if ch == '"':
+                        in_str = True
+                    elif ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            return idx + 1
+                idx += 1
+            return None
+
+        posts: list[dict[str, Any]] = []
+        seen_ids: set[int] = set()
+        for m in re.finditer(r'"date"\s*:\s*(\d{10})', unesc):
+            idx = m.start()
+            obj_text: str | None = None
+            for _ in range(150):
+                idx = unesc.rfind("{", 0, idx)
+                if idx < 0:
+                    break
+                end = _match_json_brace(unesc, idx)
+                if end and idx < m.start() < end:
+                    obj_text = unesc[idx:end]
+                    break
+            if not obj_text:
+                continue
+            try:
+                obj = json.loads(obj_text)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict) or "postpone_item_hidden" in obj:
+                continue
+            if obj.get("owner_id") != -group_id and obj.get("from_id") != -group_id:
+                continue
+            pid = int(obj.get("id") or 0)
+            if pid <= 0 or pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+
+            raw_txt = str(obj.get("text") or "")
+            # Сохраняем переносы строк <br>, убираем ВК-разметку ссылок [#alias|title|url] -> title
+            txt = re.sub(r"<br\s*/?>", "\n", raw_txt, flags=re.I)
+            txt = re.sub(r"<[^>]+>", "", txt)
+            txt = re.sub(r"\[#alias\|([^|\]]+)\|[^\]]+\]", r"\1", txt)
+            txt = html_mod.unescape(txt).strip()
+
+            has_photo = bool("attachments_meta" in obj or "compact_attachments_before_cut" in obj)
+            atts = obj.get("attachments") if isinstance(obj.get("attachments"), list) else []
+            if not atts and has_photo:
+                atts = [{"type": "photo"}]
+
+            posts.append(
+                {
+                    "id": pid,
+                    "owner_id": -group_id,
+                    "from_id": obj.get("from_id", -group_id),
+                    "date": int(obj.get("date") or 0),
+                    "text": txt,
+                    "is_pinned": int(bool(obj.get("is_pinned"))),
+                    "attachments": atts,
+                }
+            )
+
+        posts.sort(key=lambda item: (int(item.get("date") or 0), int(item.get("id") or 0)), reverse=True)
+        return posts[: max(count, 1)]
+
+    def get_recent_wall_posts(self, count: int = 30, *, use_user_token: bool = False) -> list[dict[str, Any]]:
+        """Читает последние посты со стены группы (бережно к лимитам VK_USER_TOKEN)."""
+        group_id = self.resolve_group_id()
+        # В регулярных запусках НЕ тратим лимит VK_USER_TOKEN на чтение стены (чтобы не провоцировать Flood control Error 9):
+        # читаем публичный HTML стены, а если VK_USER_TOKEN вообще не задан — пробуем штатный вызов с vk_token.
+        if not use_user_token and self.vk_user_token:
+            public_items = self.fetch_public_wall_posts(count=count)
+            if public_items:
+                return public_items
+
+        user_tok = self._active_user_token() if use_user_token else ""
+        token_for_read = user_tok or self.vk_token
         try:
             resp = self.call_api(
                 "wall.get",
@@ -484,71 +621,130 @@ class VKPublisher:
             if isinstance(resp, dict) and isinstance(resp.get("items"), list):
                 return resp["items"]
         except VKAPIError as exc:
-            # С ключом сообщества метод wall.get недоступен (код 27) — это штатная ситуация
-            if exc.code in {15, 27}:
+            if user_tok and token_for_read == user_tok and exc.code in {5, 9, 10, 15, 27, 28, 29}:
+                self._user_token_disabled = True
+                logger.warning(
+                    "Пользовательский токен VK_USER_TOKEN временно недоступен для wall.get (код %d: %s) — читаем публичную стену.",
+                    exc.code,
+                    exc.vk_message,
+                )
+            elif exc.code in {15, 27}:
                 logger.info(
-                    "Чтение стены wall.get пропущено (используется ключ сообщества; дедупликация работает по state/published.json)."
+                    "Чтение стены через API wall.get недоступно ключу сообщества — используем публичную страницу и state/published.json."
                 )
             else:
-                logger.warning("Не удалось прочитать стену ВК для проверки дублей: %s", exc)
+                logger.warning("Не удалось прочитать стену ВК через API: %s", exc)
+            return self.fetch_public_wall_posts(count=count)
         return []
 
-    def upload_wall_photo(self, image: PreparedImage) -> str | None:
-        """Загружает фото на сервер ВК (с повторами при сетевых сбоях) и возвращает строку 'photo123_456'."""
+    def _upload_multipart_to_vk(self, upload_url: str, image: PreparedImage) -> dict[str, Any] | None:
+        body, content_type = encode_multipart_photo(
+            "photo",
+            image.filename,
+            image.mime_type,
+            image.data,
+        )
+        req = urllib.request.Request(
+            upload_url,
+            data=body,
+            headers={
+                "Content-Type": content_type,
+                "User-Agent": USER_AGENT,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=40, context=self.ssl_ctx) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="replace"))
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            logger.warning("Сбой загрузки файла фото на upload_url ВК: %s", exc)
+            return None
+
+    @staticmethod
+    def _format_saved_photo_attachment(saved: Any) -> str | None:
+        if isinstance(saved, list) and saved:
+            item = saved[0]
+            owner_id = item.get("owner_id")
+            media_id = item.get("id")
+            access_key = item.get("access_key")
+            if owner_id is not None and media_id is not None:
+                att = f"photo{owner_id}_{media_id}"
+                if access_key:
+                    att = f"{att}_{access_key}"
+                return att
+        return None
+
+    def probe_wall_photo_upload(self) -> str | None:
+        """Проверяет доступность загрузки фото на стену (1 лёгкий запрос) и кеширует upload_url для следующего поста."""
+        if self._cached_wall_upload_url:
+            return self._cached_wall_upload_url
         group_id = self.resolve_group_id()
-        photo_token = self.vk_user_token or self.vk_token
+        user_tok = self._active_user_token()
+        photo_token = user_tok or self.vk_token
+        try:
+            upload_srv = self.call_api(
+                "photos.getWallUploadServer",
+                {"group_id": group_id},
+                token=photo_token,
+            )
+        except VKAPIError as exc:
+            self.last_photo_error = exc
+            if exc.code in {5, 9, 10, 15, 27, 28, 29} and user_tok and photo_token == user_tok:
+                self._user_token_disabled = True
+            logger.warning(
+                "Загрузка фото на стену сейчас недоступна (код %d: %s).",
+                exc.code,
+                exc.vk_message,
+            )
+            return None
+
+        upload_url = str((upload_srv or {}).get("upload_url", "")).strip()
+        if upload_url:
+            self._cached_wall_upload_url = upload_url
+            self.last_photo_error = None
+            return upload_url
+        return None
+
+    def upload_wall_photo(self, image: PreparedImage) -> str | None:
+        """Загружает фото на стену группы ВК (photos.getWallUploadServer + saveWallPhoto) без лишних повторов при Flood control."""
+        group_id = self.resolve_group_id()
+        user_tok = self._active_user_token()
+        photo_token = user_tok or self.vk_token
 
         for attempt in range(1, 4):
-            try:
-                upload_srv = self.call_api(
-                    "photos.getWallUploadServer",
-                    {"group_id": group_id},
-                    token=photo_token,
-                )
-            except VKAPIError as exc:
-                if exc.code in {15, 27}:
-                    logger.warning(
-                        "ВК отклонил загрузку фото с кодом %d (%s): методы photos.* требуют токен пользователя-админа "
-                        "(VK_TOKEN пользователя с правами wall,photos,groups,offline или отдельный секрет VK_USER_TOKEN). "
-                        "Пост будет опубликован без вложенного фото.",
-                        exc.code,
-                        exc.vk_message,
+            if self._cached_wall_upload_url:
+                upload_url = self._cached_wall_upload_url
+                self._cached_wall_upload_url = ""
+            else:
+                try:
+                    upload_srv = self.call_api(
+                        "photos.getWallUploadServer",
+                        {"group_id": group_id},
+                        token=photo_token,
                     )
-                    return None
-                logger.warning("Ошибка photos.getWallUploadServer (попытка %d/3): %s", attempt, exc)
-                time.sleep(1.0 * attempt)
-                continue
+                except VKAPIError as exc:
+                    self.last_photo_error = exc
+                    if exc.code in {5, 9, 10, 15, 27, 28, 29}:
+                        if user_tok and photo_token == user_tok:
+                            self._user_token_disabled = True
+                        logger.warning(
+                            "ВК отклонил photos.getWallUploadServer (код %d: %s) — прекращаем повторы, чтобы не продлевать лимит.",
+                            exc.code,
+                            exc.vk_message,
+                        )
+                        return None
+                    logger.warning("Ошибка photos.getWallUploadServer (попытка %d/3): %s", attempt, exc)
+                    time.sleep(1.0 * attempt)
+                    continue
+                upload_url = str((upload_srv or {}).get("upload_url", "")).strip()
 
-            upload_url = str((upload_srv or {}).get("upload_url", "")).strip()
             if not upload_url:
                 logger.warning("photos.getWallUploadServer не вернул upload_url (попытка %d/3)", attempt)
                 time.sleep(1.0 * attempt)
                 continue
 
-            body, content_type = encode_multipart_photo(
-                "photo",
-                image.filename,
-                image.mime_type,
-                image.data,
-            )
-            req = urllib.request.Request(
-                upload_url,
-                data=body,
-                headers={
-                    "Content-Type": content_type,
-                    "User-Agent": USER_AGENT,
-                },
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=40, context=self.ssl_ctx) as resp:
-                    uploaded = json.loads(resp.read().decode("utf-8", errors="replace"))
-            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-                logger.warning("Сбой загрузки файла фото на upload_url ВК (попытка %d/3): %s", attempt, exc)
-                time.sleep(1.2 * attempt)
-                continue
-
-            photo_field = uploaded.get("photo")
+            uploaded = self._upload_multipart_to_vk(upload_url, image)
+            photo_field = (uploaded or {}).get("photo")
             if not photo_field or photo_field == "[]":
                 logger.warning("Сервер загрузки ВК вернул пустое поле photo (попытка %d/3)", attempt)
                 time.sleep(1.2 * attempt)
@@ -560,26 +756,25 @@ class VKPublisher:
                     {
                         "group_id": group_id,
                         "photo": photo_field,
-                        "server": uploaded.get("server"),
-                        "hash": uploaded.get("hash"),
+                        "server": (uploaded or {}).get("server"),
+                        "hash": (uploaded or {}).get("hash"),
                     },
                     token=photo_token,
                 )
             except VKAPIError as exc:
+                self.last_photo_error = exc
+                if exc.code in {5, 9, 10, 15, 27, 28, 29}:
+                    if user_tok and photo_token == user_tok:
+                        self._user_token_disabled = True
+                    return None
                 logger.warning("Ошибка сохранения фото photos.saveWallPhoto (попытка %d/3): %s", attempt, exc)
                 time.sleep(1.2 * attempt)
                 continue
 
-            if isinstance(saved, list) and saved:
-                item = saved[0]
-                owner_id = item.get("owner_id")
-                media_id = item.get("id")
-                access_key = item.get("access_key")
-                if owner_id is not None and media_id is not None:
-                    att = f"photo{owner_id}_{media_id}"
-                    if access_key:
-                        att = f"{att}_{access_key}"
-                    return att
+            att = self._format_saved_photo_attachment(saved)
+            if att:
+                self.last_photo_error = None
+                return att
 
         return None
 
@@ -590,6 +785,7 @@ class VKPublisher:
         image: PreparedImage | None = None,
         fallback_link: str = "",
         guid: str = "",
+        require_photo: bool = False,
     ) -> dict[str, Any]:
         """Публикует готовый пост сразу на стену сообщества от имени группы."""
         group_id = self.resolve_group_id()
@@ -600,6 +796,19 @@ class VKPublisher:
             photo_att = self.upload_wall_photo(image)
             if photo_att:
                 attachments.append(photo_att)
+            elif require_photo:
+                err = self.last_photo_error
+                err_code = err.code if err is not None else -1
+                err_msg = (
+                    err.vk_message
+                    if err is not None
+                    else "Не удалось загрузить изображение на сервер ВК (проверьте VK_USER_TOKEN)"
+                )
+                raise VKPhotoUploadUnavailableError(
+                    err_code,
+                    f"Публикация без картинки заблокирована (require_photo=True): {err_msg}",
+                    method="upload_wall_photo",
+                )
 
         if not attachments and fallback_link:
             attachments.append(fallback_link)
@@ -614,17 +823,17 @@ class VKPublisher:
         if guid:
             params["guid"] = guid
 
+        active_user = self._active_user_token()
         try:
             resp = self.call_api("wall.post", params, token=self.vk_token)
         except VKAPIError as exc:
-            # С ключом сообщества голая ссылка в attachments вызывает Error 100 (link_photo_sizing_rule)
             if exc.code == 100 and "attachments" in params and not photo_att:
                 logger.warning("ВК отклонил ссылочное вложение (%s) — публикуем текст без карточки ссылки.", exc.vk_message)
                 params.pop("attachments", None)
                 attachments = []
                 resp = self.call_api("wall.post", params, token=self.vk_token)
-            elif exc.code in {15, 27, 1051} and self.vk_user_token:
-                resp = self.call_api("wall.post", params, token=self.vk_user_token)
+            elif exc.code in {15, 27, 1051} and active_user:
+                resp = self.call_api("wall.post", params, token=active_user)
             else:
                 raise
         post_id = int((resp or {}).get("post_id", 0))
