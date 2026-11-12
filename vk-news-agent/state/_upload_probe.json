@@ -1,41 +1,63 @@
 {
-  "agent_rc": 0,
-  "latest_published_entry": null,
-  "public_wall_posts": [
-    {
-      "id": 192,
-      "has_attachments_meta": false,
-      "has_compact_attachments": false,
-      "attachments_meta_preview": "",
-      "text_head": "&#128663;&#128295; Популярные седаны из Кореи и Китая: советы экспертов Автоэксперт Дмитрий Рогов рассказал, какие модели автомобилей чаще всего выбирают российские водители при бю"
-    },
-    {
-      "id": 191,
-      "has_attachments_meta": false,
-      "has_compact_attachments": false,
-      "attachments_meta_preview": "",
-      "text_head": "&#128663;&#128739;&#65039; Ремонт трассы М-8 в Ярославле Ремонт дорог в Ярославской области завершен! Участки трассы М-8 «Холмогоры» от 113,8 до 221-го километра привели в порядок."
-    },
-    {
-      "id": 190,
-      "has_attachments_meta": false,
-      "has_compact_attachments": false,
-      "attachments_meta_preview": "",
-      "text_head": "&#128663;&#128295; Почему владельцы Renault Logan и Sandero всё чаще сталкиваются с признанием машин «тотальными» Многие водители наверняка сталкивались с ситуацией, когда после се"
-    },
-    {
-      "id": 188,
-      "has_attachments_meta": false,
-      "has_compact_attachments": false,
-      "attachments_meta_preview": "",
-      "text_head": "&#128663; Как сделать поездки с ребёнком в машине спокойнее и приятнее? Многие дети боятся ездить в машине и переживают стресс во время дороги. Нейропсихолог Татьяна Чурюмова подел"
-    },
-    {
-      "id": 187,
-      "has_attachments_meta": false,
-      "has_compact_attachments": false,
-      "attachments_meta_preview": "",
-      "text_head": "&#128038; В Ярославле чайка спасла водителя от штрафа В Ярославле любопытная чайка решила поучаствовать в дорожных делах! Случилось это днём 11 апреля 2026 года. Автомобиль Honda н"
-    }
-  ]
+  "user_oauth_url_params": {
+    "keys": [
+      "access_token",
+      "expires_in",
+      "user_id"
+    ],
+    "expires_in": "0"
+  },
+  "api.vk.ru/method_account.getAppPermissions": {
+    "ok": true,
+    "resp_keys": "336900"
+  },
+  "api.vk.ru/method_photos.getWallUploadServer": {
+    "ok": false,
+    "error_code": 9,
+    "error_msg": "Flood control",
+    "error_subcode": null,
+    "error_text": null
+  },
+  "api.vk.com/method_account.getAppPermissions": {
+    "ok": true,
+    "resp_keys": "336900"
+  },
+  "api.vk.com/method_photos.getWallUploadServer": {
+    "ok": false,
+    "error_code": 9,
+    "error_msg": "Flood control",
+    "error_subcode": null,
+    "error_text": null
+  },
+  "saved_msg_photo_meta": {
+    "album_id": -64,
+    "owner_id": -85500918,
+    "id": 457239238,
+    "has_access_key": true,
+    "keys": [
+      "access_key",
+      "album_id",
+      "date",
+      "has_tags",
+      "id",
+      "orig_photo",
+      "owner_id",
+      "sizes",
+      "text",
+      "user_id",
+      "web_view_token"
+    ]
+  },
+  "drycheck_with_key": {
+    "code": 100,
+    "msg": "One of the parameters specified was missing or invalid: invalid publish_date param"
+  },
+  "drycheck_no_key": {
+    "code": 100,
+    "msg": "One of the parameters specified was missing or invalid: invalid publish_date param"
+  },
+  "drycheck_existing_wall_photo_187": {
+    "code": 100,
+    "msg": "One of the parameters specified was missing or invalid: invalid publish_date param"
+  }
 }
