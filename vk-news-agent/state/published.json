@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 9,
+  "total_posts": 10,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -161,6 +161,23 @@
       "category": "tip",
       "vk_post_id": 188,
       "published_at": "2026-11-12T06:11:28.277093+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/renault-logan-posle-dtp-stalo-proshe-spisyvat-chem-remontirovat-12-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/renault-logan-posle-dtp-stalo-proshe-spisyvat-chem-remontirovat-12-11-2026.htm",
+      "guid": "https://motor.ru/news/renault-logan-posle-dtp-stalo-proshe-spisyvat-chem-remontirovat-12-11-2026.htm",
+      "title": "Renault Logan после ДТП стало проще списывать, чем ремонтировать",
+      "tokens": [
+        "renault",
+        "logan",
+        "дтп",
+        "прощ",
+        "списыва",
+        "ремонти"
+      ],
+      "category": "news",
+      "vk_post_id": 190,
+      "published_at": "2026-11-12T11:12:12.159266+00:00"
     }
   ]
 }
