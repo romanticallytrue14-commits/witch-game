@@ -22,7 +22,7 @@ from agent import (  # noqa: E402
     load_fallback_editorial_card,
     prepare_ai_image_for_post,
 )
-from ai_writer import create_ai_client, rewrite_existing_post_text  # noqa: E402
+from ai_writer import create_ai_client, is_yaroslavl_topic, rewrite_existing_post_text  # noqa: E402
 from dedup_store import make_post_guid  # noqa: E402
 from news_fetcher import NewsCandidate, enrich_candidate_from_webpage  # noqa: E402
 from vk_publisher import (  # noqa: E402
@@ -108,8 +108,11 @@ def rewrite_existing_wall_posts(
     wall_items: list[dict[str, Any]],
     *,
     pinned_post_id: int = 0,
+    regenerate_local_images: bool = True,
+    preview_save_dir: Path | None = None,
+    only_post_ids: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Переписывает уже выпущенные посты на стене в фирменном стиле нового бренда с вычиткой ИИ."""
+    """Переписывает уже выпущенные посты простым живым языком и обновляет иллюстрации Ярославля."""
     if not wall_items:
         return []
 
@@ -131,6 +134,8 @@ def rewrite_existing_wall_posts(
         pid = int(w_item.get("id") or 0)
         if pid <= 0 or pid == pinned_post_id or w_item.get("is_pinned"):
             continue
+        if only_post_ids and pid not in only_post_ids:
+            continue
         p_src = w_item.get("post_source") or {}
         if p_src.get("data") == "profile_photo":
             continue
@@ -149,35 +154,86 @@ def rewrite_existing_wall_posts(
             else:
                 cat = "news"
         url = str(meta.get("url") or "")
-        title_hint = str(meta.get("title") or existing_text.splitlines()[0][:100])
+        orig_title = str(meta.get("title") or "").strip()
+        title_hint = orig_title or existing_text.splitlines()[0][:100]
 
+        # Подтягиваем первоисточник статьи, чтобы переписать пост по чистым фактам без старых искажений
+        source_facts = ""
+        if url.startswith(("http://", "https://")) and "news.google.com" not in url:
+            try:
+                cand = NewsCandidate(
+                    title=title_hint,
+                    url=url,
+                    source_name="source",
+                    category=cat,
+                    summary="",
+                )
+                cand = enrich_candidate_from_webpage(cand, timeout=12)
+                if len(cand.best_text) >= 120:
+                    source_facts = cand.best_text
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Не удалось подгрузить первоисточник для поста #%d: %s", pid, exc)
+
+        was_yaroslavl = cat == "local_76" or is_yaroslavl_topic(title_hint, existing_text, cat)
         new_text = rewrite_existing_post_text(
             ai_client,
             existing_text,
             config,
             category=cat,
             source_url=url,
+            source_facts=source_facts,
+            original_title=orig_title,
+            is_local_yaroslavl=was_yaroslavl,
         )
 
         existing_att = extract_existing_photo_attachment(w_item)
+        yaroslavl_post = was_yaroslavl or is_yaroslavl_topic(title_hint, new_text, cat)
         new_img: PreparedImage | None = None
-        if not existing_att:
-            new_img = prepare_ai_image_for_post(
-                ai_client,
-                title=title_hint,
-                post_text=new_text,
-                category=cat,
-                config=config,
-            ) or load_fallback_editorial_card(config, cat)
+
+        if not existing_att or (regenerate_local_images and yaroslavl_post):
+            cached_preview = preview_save_dir / f"_yaroslavl_preview_{pid}.jpg" if preview_save_dir is not None else None
+            if cached_preview is not None and cached_preview.is_file():
+                raw_cached = cached_preview.read_bytes()
+                dims = inspect_image_dimensions(raw_cached)
+                if dims is not None:
+                    new_img = PreparedImage(
+                        data=raw_cached,
+                        mime_type=dims[0],
+                        filename=f"yaroslavl_{pid}.jpg",
+                        width=dims[1],
+                        height=dims[2],
+                        source_url=f"cached_ai:{cached_preview.name}",
+                    )
+            if new_img is None:
+                new_img = prepare_ai_image_for_post(
+                    ai_client,
+                    title=title_hint,
+                    post_text=new_text,
+                    category=cat,
+                    config=config,
+                )
+            if new_img is None and not existing_att:
+                new_img = load_fallback_editorial_card(config, cat)
+            if new_img is not None and yaroslavl_post and preview_save_dir is not None and not str(new_img.source_url).startswith("cached_ai:"):
+                preview_save_dir.mkdir(parents=True, exist_ok=True)
+                (preview_save_dir / f"_yaroslavl_preview_{pid}.jpg").write_bytes(new_img.data)
 
         try:
             res = pub.edit_wall_post(pid, new_text, image=new_img, keep_attachments=existing_att)
-            logger.info("Пост #%d успешно переписан в стиле «Греем Мотор»!", pid)
+            logger.info(
+                "Пост #%d успешно переписан простым языком (Ярославль=%s, новое фото=%s)!",
+                pid,
+                yaroslavl_post,
+                new_img is not None,
+            )
             rewritten_reports.append(
                 {
                     "post_id": pid,
                     "post_url": res["post_url"],
                     "photo_attached": res["photo_attached"],
+                    "yaroslavl_image_regenerated": new_img is not None and yaroslavl_post,
+                    "image_source": new_img.source_url if new_img is not None else "kept_existing",
+                    "ai_model": getattr(ai_client, "_active_text_model", "") or getattr(ai_client, "name", ""),
                     "preview": new_text[:200],
                 }
             )
@@ -265,6 +321,8 @@ def apply_group_branding(
     backfill_photos: bool = True,
     rewrite_wall: bool = False,
     save_verify_json: Path | None = None,
+    only_post_ids: set[int] | None = None,
+    keep_all_photos: bool = False,
 ) -> int:
     config = load_config(config_path)
     group_cfg = config.get("group", {})
@@ -447,6 +505,9 @@ def apply_group_branding(
             published_state_path,
             wall_items,
             pinned_post_id=int(b_state.get("pinned_post_id") or 0),
+            regenerate_local_images=not keep_all_photos,
+            preview_save_dir=save_verify_json.parent if save_verify_json is not None else None,
+            only_post_ids=only_post_ids,
         )
         if rewritten_list:
             report_lines.append(f"- ✅ **Переписаны выпущенные посты в стиле «{title}»**: `{len(rewritten_list)}` шт.")
@@ -475,6 +536,7 @@ def apply_group_branding(
                 "has_photo": g0.get("has_photo"),
             },
             "rewritten_count": len(rewritten_list),
+            "rewritten_reports": rewritten_list,
             "wall": [
                 {
                     "id": w.get("id"),
@@ -503,6 +565,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force-new-pinned", action="store_true")
     p.add_argument("--skip-backfill", action="store_true")
     p.add_argument("--rewrite-wall", action="store_true", help="Переписать существующие посты стены под новый бренд")
+    p.add_argument("--only-post-ids", default="", help="Список ID постов через запятую (например, 187,188)")
+    p.add_argument("--keep-all-photos", action="store_true", help="Сохранить текущие фото у всех постов без перегенерации")
     p.add_argument("--save-verify-json", default=None)
     return p
 
@@ -510,6 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+    only_ids = {int(x.strip()) for x in str(args.only_post_ids or "").split(",") if x.strip().isdigit()} or None
     return apply_group_branding(
         config_path=Path(args.config),
         dry_run=args.dry_run,
@@ -521,6 +586,8 @@ def main(argv: list[str] | None = None) -> int:
         backfill_photos=not args.skip_backfill,
         rewrite_wall=args.rewrite_wall,
         save_verify_json=Path(args.save_verify_json) if args.save_verify_json else None,
+        only_post_ids=only_ids,
+        keep_all_photos=args.keep_all_photos,
     )
 
 

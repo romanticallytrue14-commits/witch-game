@@ -158,7 +158,9 @@ class GigaChatClient:
         self.raw_key = auth_key
         self.auth_key = normalize_gigachat_auth_key(auth_key)
         self.scope = os.getenv("GIGACHAT_SCOPE") or str(cfg.get("scope", "GIGACHAT_API_PERS"))
-        self.model = os.getenv("GIGACHAT_MODEL") or str(cfg.get("model", "GigaChat"))
+        self.model = os.getenv("GIGACHAT_MODEL") or str(cfg.get("model", "GigaChat-2"))
+        self.image_model = os.getenv("GIGACHAT_IMAGE_MODEL") or str(cfg.get("image_model", "GigaChat"))
+        self._active_text_model: str = ""
         self.oauth_url = os.getenv("GIGACHAT_OAUTH_URL") or str(
             cfg.get("oauth_url", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth")
         )
@@ -253,39 +255,48 @@ class GigaChatClient:
 
     def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> str:
         token = self._get_access_token()
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
         }
-        body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        model_candidates = (
+            [self._active_text_model]
+            if self._active_text_model
+            else list(dict.fromkeys([self.model, "GigaChat-2", "GigaChat"]))
+        )
         last_err: Exception | None = None
         data: dict[str, Any] = {}
-        for chat_url in self.chat_urls:
-            try:
-                data = _http_post_json(
-                    chat_url,
-                    headers,
-                    body_bytes,
-                    ssl_ctx=self.ssl_ctx,
-                    timeout=55,
-                    retries=2,
-                )
-                last_err = None
+        for mdl in model_candidates:
+            payload = {
+                "model": mdl,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            for chat_url in self.chat_urls:
+                try:
+                    data = _http_post_json(
+                        chat_url,
+                        headers,
+                        body_bytes,
+                        ssl_ctx=self.ssl_ctx,
+                        timeout=55,
+                        retries=2,
+                    )
+                    self._active_text_model = mdl
+                    last_err = None
+                    break
+                except AIProviderError as exc:
+                    last_err = exc
+                    continue
+            if last_err is None:
                 break
-            except AIProviderError as exc:
-                last_err = exc
-                continue
         if last_err is not None:
             raise last_err
         choices = data.get("choices") or []
@@ -391,7 +402,7 @@ class GigaChatClient:
         last_err: Exception | None = None
         for user_msg in prompts_to_try:
             payload = {
-                "model": self.model,
+                "model": self.image_model,
                 "messages": [
                     {"role": "system", "content": sys_msg},
                     {"role": "user", "content": user_msg},
@@ -582,7 +593,7 @@ class TemplateFallbackClient:
         title = ""
         category = "news"
         raw_fact_lines: list[str] = []
-        is_evergreen = "ТЕМА РАЗБОРА:" in user_prompt
+        is_evergreen = "ТЕМА РАЗБОРА:" in user_prompt or "ТЕМА СОВЕТА:" in user_prompt
         capture = False
 
         for raw_ln in user_prompt.splitlines():
@@ -593,11 +604,11 @@ class TemplateFallbackClient:
                 continue
             if ln.startswith("КАТЕГОРИЯ:"):
                 category = ln.split(":", 1)[1].strip()
-            elif ln.startswith(("ЗАГОЛОВОК:", "ТЕМА РАЗБОРА:")):
+            elif ln.startswith(("ЗАГОЛОВОК:", "ЗАГОЛОВОК ИСТОЧНИКА:", "ТЕМА РАЗБОРА:", "ТЕМА СОВЕТА:")):
                 title = ln.split(":", 1)[1].strip()
-            elif ln.startswith(("ФАКТУРА НОВОСТИ:", "КЛЮЧЕВЫЕ ТЕЗИСЫ:")):
+            elif ln.startswith(("ФАКТУРА НОВОСТИ:", "ТЕКСТ НОВОСТИ:", "КЛЮЧЕВЫЕ ТЕЗИСЫ:", "О ЧЁМ РАССКАЗАТЬ:")):
                 capture = True
-            elif ln.startswith("ТРЕБОВАНИЯ К ПОСТУ:"):
+            elif ln.startswith(("ТРЕБОВАНИЯ К ПОСТУ:", "Напиши короткий,", "Напиши понятный")):
                 capture = False
             elif capture:
                 raw_fact_lines.append(ln)
@@ -721,8 +732,160 @@ def create_ai_client(config: dict[str, Any], allow_template_fallback: bool = Fal
     )
 
 
+UPPERCASE_ACRONYMS = {
+    "ПДД", "ГИБДД", "ГАИ", "ОСАГО", "КАСКО", "АЗС", "ДТП", "АКПП", "МКПП",
+    "КПП", "ВАЗ", "УАЗ", "ГАЗ", "КАМАЗ", "АВТОВАЗ", "РФ", "КНР", "СССР",
+    "НДС", "ФНС", "ЦБ", "МВД", "МЧС", "ТО", "СТО", "ЖКХ", "ТЭЦ", "АКБ", "ДВС",
+}
+
+YAROSLAVL_GEO_MARKERS = (
+    "ярослав",
+    "рыбинск",
+    "тутаев",
+    "переславл",
+    "ростов велик",
+    "углич",
+    "мышкин",
+    "данилов",
+    "гаврилов-ям",
+    "пошехонь",
+    "любим",
+    "некоуз",
+    "брейтов",
+    "борисоглебск",
+    "76 регион",
+    "76-й регион",
+    "76-м регион",
+    "брагино",
+    "заволжск",
+    "нефтестро",
+    "суздалк",
+    "дядьков",
+    "липовая гора",
+    "которосл",
+)
+
+FLUFF_SUBHEADER_RE = re.compile(
+    r"^(?:[^\wа-яА-ЯёЁ]{0,6}\s*)?(?:"
+    r"Вопрос\s+[^:\n]{0,40}|"
+    r"Делимся\s+опытом|"
+    r"Ключевые\s+(?:находки|моменты|выводы)|"
+    r"Но\s+не\s+всё\s+так\s+однозначно|"
+    r"Советы\s+бывалым|"
+    r"Что\s+(?:ещ[её]\s+)?(?:важно|стоит)\s+уч[еи]тывать[^:\n]{0,30}|"
+    r"Что\s+важно\s+учесть\s+водителю|"
+    r"На\s+заметку\s+водителю"
+    r")[.:…!]*\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def humanize_technical_jargon(text: str, *, aggressive_source_mode: bool = False) -> str:
+    """Переводит сухие лабораторные коды и ГОСТ-обозначения на простой язык обычных водителей."""
+    out = text
+    # Марки топлива: АИ-95-К5 -> АИ-95, АИ-92-К4 -> АИ-92, ДТ-З-К5 -> зимний дизель
+    out = re.sub(r"\bАИ-(\d{2,3})-К[2-5]\b", r"АИ-\1", out, flags=re.IGNORECASE)
+    out = re.sub(r"\bДТ-З-К[2-5]\b", "зимний дизель", out, flags=re.IGNORECASE)
+    out = re.sub(r"\bДТ-[АЛЕ]-К[2-5]\b", "дизельное топливо", out, flags=re.IGNORECASE)
+    # Убираем скобочные лабораторные уточнения вида «(169 мг/кг)» или «(К2)»
+    out = re.sub(r"\s*\(\s*(?:до\s+)?\d+[.,]?\d*\s*мг/кг[^)]*\)", "", out, flags=re.IGNORECASE)
+    out = re.sub(r"\s*\(\s*(?:класс\s*)?К[2-5]\s*\)", "", out, flags=re.IGNORECASE)
+
+    if aggressive_source_mode:
+        def _replace_mg_kg(m: re.Match[str]) -> str:
+            raw_num = m.group(1).replace(",", ".")
+            try:
+                val = float(raw_num)
+            except ValueError:
+                return "отклонение по сере"
+            if val >= 100:
+                return "огромное превышение нормы по сере (в десятки раз выше допустимого)"
+            if val >= 20:
+                return "серьёзное превышение допустимой нормы серы"
+            return "чистый показатель серы в пределах строгой нормы"
+
+        out = re.sub(r"(\d+[.,]?\d*)\s*мг/кг(?:\s+серы)?", _replace_mg_kg, out, flags=re.IGNORECASE)
+        out = re.sub(
+            r"(?:экологическ[а-яё]+\s+)?класс[а-яё]*\s+К[23]\b",
+            "устаревшего низкого качества",
+            out,
+            flags=re.IGNORECASE,
+        )
+        out = re.sub(
+            r"(?:экологическ[а-яё]+\s+)?класс[а-яё]*\s+К[45]\b",
+            "современного стандарта качества",
+            out,
+            flags=re.IGNORECASE,
+        )
+        out = re.sub(r"\bК[23]\b", "низкого качества", out)
+        out = re.sub(r"\bК[45]\b", "высокого стандарта", out)
+        out = re.sub(r"\bМИЦ\s+ГСМ\b", "независимая лаборатория", out, flags=re.IGNORECASE)
+        out = re.sub(r"\bвегетативной\s+нервной\s+системы\s*\(ВНС\)", "нервной системы", out, flags=re.IGNORECASE)
+        out = re.sub(r"\bВНС\b", "нервной системы", out)
+
+    return out
+
+
+def _normalize_screaming_headline(line: str) -> str:
+    """Превращает кричащий ЗАГОЛОВОК КАПСОМ в спокойный человеческий регистр с сохранением аббревиатур."""
+    cyr_letters = [ch for ch in line if "а" <= ch.lower() <= "я" or ch.lower() == "ё"]
+    if len(cyr_letters) < 6:
+        return line
+    upper_count = sum(1 for ch in cyr_letters if ch.isupper())
+    if upper_count / len(cyr_letters) < 0.65:
+        return line
+
+    def _fix_word(m: re.Match[str]) -> str:
+        w = m.group(0)
+        if w.upper() in UPPERCASE_ACRONYMS:
+            return w.upper()
+        return w.lower()
+
+    lowered = re.sub(r"[А-ЯЁа-яё]+", _fix_word, line)
+    # Делаем заглавной первую букву заголовка и первую букву после «: », «! », «? », «. »
+    chars = list(lowered)
+    cap_next = True
+    for idx, ch in enumerate(chars):
+        if cap_next and ch.isalpha():
+            chars[idx] = ch.upper()
+            cap_next = False
+        elif ch in ".!?":
+            cap_next = True
+    res = "".join(chars)
+    res = re.sub(r"\bярослав([а-яё]*)\b", lambda m: "Ярослав" + m.group(1), res)
+    res = re.sub(r"\bросси([а-яё]*)\b", lambda m: "Росси" + m.group(1), res)
+    return res
+
+
+def strip_vk_footer_lines(text: str) -> str:
+    """Возвращает чистый текст поста без служебного подвала, ссылки на источник и хештегов."""
+    clean_lines: list[str] = []
+    for raw_ln in (text or "").splitlines():
+        s = raw_ln.strip()
+        if s.startswith(("📰 По материалам:", "🔥 Греем Мотор —", "Подробнее:")):
+            continue
+        if s.startswith("#") and all(tok.startswith("#") for tok in s.split()):
+            continue
+        clean_lines.append(raw_ln)
+    return "\n".join(clean_lines).strip()
+
+
+def is_yaroslavl_topic(title: str, text: str = "", category: str = "") -> bool:
+    """Определяет, касается ли новость Ярославля или Ярославской области (76 региона)."""
+    if category == "local_76":
+        return True
+    body_no_footer = strip_vk_footer_lines(text)
+    paragraphs = [p.strip() for p in body_no_footer.split("\n\n") if p.strip()]
+    # Исключаем последний абзац-вопрос подписчикам, чтобы федеральная новость с вопросом
+    # «А где заправляетесь вы в Ярославле?» не считалась городской ярославской новостью
+    core_paragraphs = paragraphs[:-1] if len(paragraphs) >= 2 and "?" in paragraphs[-1] else paragraphs
+    haystack = f"{title}\n" + "\n".join(core_paragraphs)
+    haystack_norm = haystack.lower().replace("ё", "е")
+    return any(marker in haystack_norm for marker in YAROSLAVL_GEO_MARKERS)
+
+
 def clean_markdown_for_vk(raw_text: str) -> str:
-    """Удаляет Markdown-разметку (**жирный**, ### заголовки, <img> и др.), которую не поддерживает стена ВК."""
+    """Удаляет Markdown-разметку, КАПСЛОК и канцелярские подзаголовки для живой подачи ВКонтакте."""
     text = raw_text.strip()
     # Убираем обрамляющие кавычки или кодовые блоки, если модель обернула ответ
     text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
@@ -742,16 +905,32 @@ def clean_markdown_for_vk(raw_text: str) -> str:
     text = re.sub(r"__([^_]+)__", r"\1", text)
     text = re.sub(r"(?m)^\*\s+", "• ", text)
     text = re.sub(r"(?m)^-\s+", "• ", text)
+    text = re.sub(r"(?m)^[✅✔☑️]\s*", "• ", text)
     text = text.replace("**", "").replace("__", "")
+    # Чистим случайно склеенные/неуместные эмодзи от LLM (например, обезьяну 🦧, попугая 🦜 или рассыпавшийся «👨⚕️»)
+    text = re.sub(r"[🦜🦧🦍🐒🧟🧞🧜🧚]+", "", text)
+    text = re.sub(r"[👨👩]\u200d?⚕\ufe0f?", "", text)
+    text = humanize_technical_jargon(text, aggressive_source_mode=False)
     # Аккуратная чистка задвоенных пробелов и случайной двойной пунктуации ("..", ",,")
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"(?<!\.)\.\.(?!\.)", ".", text)
     text = re.sub(r",,+", ",", text)
 
-    # Вычищаем случайные хештеги внутри ответа модели (мы добавим аккуратную строку хештегов сами)
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    while lines and re.fullmatch(r"(?:\s*#[a-zA-Zа-яА-ЯёЁ0-9_@]+)+\s*", lines[-1]):
-        lines.pop()
+    # Вычищаем случайные хештеги и лишние казённые подзаголовки-разделители
+    raw_lines = [ln.rstrip() for ln in text.splitlines()]
+    while raw_lines and re.fullmatch(r"(?:\s*#[a-zA-Zа-яА-ЯёЁ0-9_@]+)+\s*", raw_lines[-1]):
+        raw_lines.pop()
+
+    lines: list[str] = []
+    first_nonempty_done = False
+    for ln in raw_lines:
+        stripped = ln.strip()
+        if stripped and not first_nonempty_done:
+            ln = _normalize_screaming_headline(stripped)
+            first_nonempty_done = True
+        elif stripped and FLUFF_SUBHEADER_RE.match(stripped):
+            continue
+        lines.append(ln)
 
     cleaned = "\n".join(lines).strip()
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -861,9 +1040,9 @@ def select_best_candidate_with_ai(
         )
 
     mode_hint = (
-        "Выбери материал с максимальной практической пользой для водителей (обслуживание, авто с пробегом, советы)."
+        "Выбери материал с максимальной практической пользой для обычных водителей (обслуживание, авто с пробегом, понятные житейские советы)."
         if preferred_mode == "tip"
-        else "Выбери самую важную, живую и цепляющую новость для российских автомобилистов и жителей Ярославля (76 регион)."
+        else "Выбери самую понятную, интересную и близкую простым водителям новость для жителей Ярославля и России."
     )
 
     group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
@@ -892,8 +1071,10 @@ def proofread_vk_post_with_ai(
     draft_text: str,
     source_facts: str,
     config: dict[str, Any],
+    *,
+    require_yaroslavl: bool = False,
 ) -> str:
-    """Второй проход ИИ-корректора: выверяет орфографию, пунктуацию, падежи и точность цифр."""
+    """Второй проход ИИ-редактора: делает текст максимально простым, живым и понятным обычным людям."""
     if isinstance(client, TemplateFallbackClient):
         return draft_text
     if not (config.get("ai") or {}).get("proofread_posts", True):
@@ -903,30 +1084,43 @@ def proofread_vk_post_with_ai(
     if len(cleaned_draft) < 120:
         return draft_text
 
+    yar_rule = (
+        "\n- ОБЯЗАТЕЛЬНО: событие произошло в Ярославле — проверь, чтобы город «Ярославль» (например, «в Ярославле») "
+        "был прямо указан в заголовке или первом абзаце и не потерялся!"
+        if require_yaroslavl
+        else ""
+    )
+
     group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
     system_prompt = (
-        f"Ты строгий литературный редактор и корректор русского языка автомобильного издания «{group_title}».\n"
-        "Твоя задача — вычитать готовый черновик поста для ВКонтакте и довести русский язык до идеала, "
-        "ОБЯЗАТЕЛЬНО СОХРАНИВ живой тон, структуру абзацев, эмодзи и лёгкую остроумную водительскую иронию автора "
-        "(ни в коем случае не засушивай текст до скучной сводки!).\n"
-        "ЧТО ПРОВЕРИТЬ ОБЯЗАТЕЛЬНО:\n"
-        "1. Орфография, пунктуация, падежи и склонение числительных (например: «до 2 млн рублей», «по обеим полосам»).\n"
-        "2. Единое уважительное обращение к читателям строго на «вы» (исправь любое случайное «тыканье» вроде «выбирай/почитай» на «выбирайте/изучите»).\n"
-        "3. Автомобильная грамотность: никаких «одеть резину» (верно: «поставить шины» / «переобуть машину»), "
-        "никаких речевых повторов в соседних предложениях и канцелярских штампов вроде «Делимся опытом:» или «Вопрос читателям:».\n"
-        "4. Точность фактов: сверь цены, даты, мощности и названия моделей с исходной фактурой. "
-        "УДАЛИ любые выдуманные байки про «моего знакомого / соседа / друга», которых нет в исходной новости — "
-        "оставляй только остроумные общие водительские наблюдения по делу.\n"
-        "5. Строго без Markdown (**звёздочек**, ### заголовков), без хештегов и без твоих комментариев от лица редактора.\n"
-        "Верни ТОЛЬКО вычитанный текст поста."
+        f"Ты шеф-редактор популярного водительского сообщества ВКонтакте «{group_title}».\n"
+        "Твоя главная задача — отредактировать черновик поста так, чтобы он читался ЛЕГКО, ПРОСТО И ПО-ЧЕЛОВЕЧЕСКИ "
+        "для самых обычных водителей (без технарской зауми, канцелярита и анкетных списков).\n"
+        "ЧТО НУЖНО ПРОВЕРИТЬ И ИСПРАВИТЬ ОБЯЗАТЕЛЬНО:\n"
+        "1. ПОНЯТНЫЙ ЗАГОЛОВОК НА ПЕРВОЙ СТРОКЕ: первая строка должна быть чётким, конкретным заголовком обычным шрифтом "
+        "(с 1 уместным эмодзи в начале и БЕЗ двоеточия на конце), из которого сразу ясна суть темы. Замени размытые "
+        "заходы вроде «Вот такая история произошла...» или «Советы эксперта помогут...:» на ясный заголовок."
+        f"{yar_rule}\n"
+        "2. ПРОСТОЙ ЧЕЛОВЕЧЕСКИЙ ЯЗЫК БЕЗ СПИСКОВ С ГАЛОЧКАМИ: убери любые лабораторные единицы и коды (никаких «мг/кг», "
+        "«классов К2/К3/К5», «ВНС», «МИЦ ГСМ», «эксплуатационных характеристик»). Перепиши сухие списки с галочками "
+        "и двоеточиями («До трёх лет: ... / Школьники: ...») в 3–4 плавных, живых и тёплых абзаца обычной человеческой речью.\n"
+        "3. ТОЧНОСТЬ И ЗДРАВЫЙ СМЫСЛ: не искажай факты из исходника (например, если птица пролетала мимо камеры и "
+        "прикрыла номер крылом в полёте — так и напиши, не выдумывай, что она садилась на капот, и не пиши «свой номер» про птицу — пиши «номер машины»). Не читай скучных нотаций вроде "
+        "«эта история напоминает о важности мыть номера» — в курьёзной новости оставь лёгкую добрую интонацию.\n"
+        "4. БЕЗУПРЕЧНАЯ РУССКАЯ ГРАММАТИКА И ОБРАЩЕНИЕ НА «ВЫ»: первая строка должна быть ОТДЕЛЬНЫМ коротким заголовком "
+        "(после него — пустая строка и основной текст), проверь падежи («избежать штрафа») и обращайся на «вы» даже в заголовке "
+        "(не «Заправляйся», а «Заправляйтесь», без первого лица «Надеюсь»).\n"
+        "5. Строго без Markdown (**звёздочек**, ### заголовков), без хештегов и без комментариев от себя.\n"
+        "Верни ТОЛЬКО готовый чистый текст поста."
     )
-    facts_block = f"ИСХОДНАЯ ФАКТУРА ДЛЯ СВЕРКИ ЦИФР:\n{source_facts[:1800]}\n\n" if source_facts else ""
+    clean_facts = humanize_technical_jargon(source_facts, aggressive_source_mode=True) if source_facts else ""
+    facts_block = f"ИСХОДНАЯ НОВОСТЬ ДЛЯ ПРОВЕРКИ ФАКТОВ:\n{clean_facts[:1800]}\n\n" if clean_facts else ""
     user_prompt = f"{facts_block}ЧЕРНОВИК ПОСТА:\n{cleaned_draft}"
 
     try:
-        checked = client.generate(system_prompt, user_prompt, temperature=0.15, max_tokens=1300)
+        checked = client.generate(system_prompt, user_prompt, temperature=0.2, max_tokens=1200)
         checked_clean = clean_markdown_for_vk(checked)
-        if len(checked_clean) >= max(160, int(len(cleaned_draft) * 0.6)):
+        if len(checked_clean) >= max(150, int(len(cleaned_draft) * 0.5)):
             return checked_clean
     except AIProviderError as exc:
         logger.warning("Проход ИИ-корректора пропущен, оставляем основной текст: %s", exc)
@@ -941,52 +1135,88 @@ def build_ai_image_prompt(
     post_text: str,
     category: str,
 ) -> str:
-    """Формирует сюжет для генерации иллюстрации с лёгкой доброй иронией и защитой от визуальных артефактов."""
+    """Формирует сюжет для генерации иллюстрации (с узнаваемым Ярославлем для ярославских новостей)."""
+    yaroslavl_scene = is_yaroslavl_topic(title, post_text, category)
+
     anti_artifact_tail = (
-        " Фотореалистичная журнальная автомобильная иллюстрация, выразительный тёплый янтарный и холодный стальной свет, "
-        "чёткая правильная геометрия кузова, колёс и фар. "
+        " Фотореалистичная журнальная автомобильная иллюстрация, естественный выразительный свет, "
+        "чёткая правильная геометрия автомобиля, колёс и фар. "
         "СТРОГО БЕЗ надписей, БЕЗ букв, БЕЗ цифр, БЕЗ вывесок, БЕЗ дорожных знаков с текстом, "
-        "пустая чёрная рамка без госномера, без людей и рук крупным планом."
+        "пустая чёрная рамка без госномера, без лиц и рук крупным планом."
+    )
+    yaroslavl_visual_tail = (
+        " Действие происходит в городе Ярославле: на заднем плане узнаваемая панорама Ярославля — "
+        "набережная широкой реки Волги, старинные белокаменные ярославские храмы с золотыми и зелёными куполами, "
+        "шатровыми колокольнями и красивый арочный мост через Волгу."
     )
 
-    default_scenes = {
-        "tip": (
-            f"Нарисуй с лёгкой тёплой водительской иронией сцену по теме «{title}»: "
-            "ухоженный современный автомобиль в уютном освещённом гараже-мастерской, рядом аккуратный инструмент "
-            "и горячая кружка чая на верстаке."
-        ),
-        "local_76": (
-            f"Нарисуй атмосферную автомобильную сцену по теме «{title}»: "
-            "современный кроссовер уверенно едет по красивой вечерней российской дороге с тёплым светом фонарей и отражениями на асфальте."
-        ),
-        "news": (
-            f"Нарисуй яркую редакционную автомобильную сцену с тонкой визуальной иронией по теме «{title}»: "
-            "современный стильный автомобиль крупным планом на эффектном подиуме или вечернем проспекте."
-        ),
-    }
-    fallback_prompt = default_scenes.get(category, default_scenes["news"]) + anti_artifact_tail
+    if yaroslavl_scene:
+        fallback_prompt = (
+            f"Нарисуй атмосферную городскую автомобильную сцену в Ярославле по теме «{title}»: "
+            "современный автомобиль на ухоженной улице Ярославля у набережной Волги, "
+            "на фоне узнаваемых белокаменных ярославских церквей с золотыми и изумрудными куполами "
+            "и арочного моста через Волгу."
+            + anti_artifact_tail
+        )
+    else:
+        default_scenes = {
+            "tip": (
+                f"Нарисуй понятную и тёплую автомобильную сцену по теме «{title}»: "
+                "ухоженный современный автомобиль в чистом уютном гараже-сервисе с тёплым светом ламп."
+            ),
+            "news": (
+                f"Нарисуй реалистичную автомобильную сцену по теме «{title}»: "
+                "современный автомобиль крупным планом на красивой российской дороге в вечернем свете фонарей."
+            ),
+        }
+        fallback_prompt = default_scenes.get(category, default_scenes["news"]) + anti_artifact_tail
 
     if isinstance(client, TemplateFallbackClient):
         return fallback_prompt
 
-    system_prompt = (
-        "Ты арт-директор автомобильного журнала. Придумай ОДНО короткое (2–3 предложения на русском языке) "
-        "описание визуальной сцены для художника-иллюстратора по теме поста.\n"
-        "ПРАВИЛА БЕЗОШИБОЧНОЙ ГЕНЕРАЦИИ:\n"
-        "1. Начни строго со слова «Нарисуй».\n"
-        "2. Главный герой кадра — автомобиль или узнаваемая дорожная/гаражная деталь с лёгкой доброй визуальной иронией, "
-        "подходящей под тему (но без карикатурных искажений кузова).\n"
-        "3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО просить нарисовать любые надписи, буквы, цифры, ценники, купюры с номиналом, "
-        "вывески, плакаты, экраны с текстом, госномера, а также лица или пальцы рук крупным планом!"
+    clean_story = strip_vk_footer_lines(post_text)[:600]
+    if yaroslavl_scene:
+        system_prompt = (
+            "Ты арт-директор автомобильного журнала в Ярославле. Придумай ОДНО короткое (2–3 предложения на русском языке) "
+            "описание фотореалистичной сцены для иллюстратора по теме новости.\n"
+            "ГЛАВНОЕ ТРЕБОВАНИЕ — НОВОСТЬ ПРО ЯРОСЛАВЛЬ:\n"
+            "1. Начни строго со слова «Нарисуй».\n"
+            "2. ОБЯЗАТЕЛЬНО покажи узнаваемый Ярославль в кадре: набережную Волги и Стрелку, старинные белокаменные "
+            "ярославские храмы с золотыми и зелёными куполами, арочный Октябрьский мост через Волгу или уютные исторические "
+            "купеческие улицы центра Ярославля.\n"
+            "3. На переднем плане органично изобрази автомобиль и ключевую деталь сюжета новости (например, летящую белую чайку, "
+            "дорожный ремонт, зимнюю улицу или поток машин).\n"
+            "4. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО просить нарисовать любые надписи, буквы, цифры, вывески, дорожные знаки с текстом "
+            "и госномера!"
+        )
+    else:
+        system_prompt = (
+            "Ты арт-директор автомобильного журнала. Придумай ОДНО короткое (2–3 предложения на русском языке) "
+            "описание понятной фотореалистичной сцены для иллюстратора по теме поста.\n"
+            "ПРАВИЛА ГЕНЕРАЦИИ:\n"
+            "1. Начни строго со слова «Нарисуй».\n"
+            "2. Главный герой кадра — реалистичный автомобиль в жизненной дорожной или сервисной обстановке, которая сразу "
+            "понятна обычному водителю по смыслу новости.\n"
+            "3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО просить нарисовать любые надписи, буквы, цифры, ценники, вывески, экраны с текстом, "
+            "госномера, а также лица или пальцы рук крупным планом!"
+        )
+
+    location_line = "Место действия: город Ярославль (обязательно покажи архитектуру Ярославля и Волгу).\n" if yaroslavl_scene else ""
+    user_prompt = (
+        f"{location_line}Тема поста: {title}\nКраткий сюжет:\n{clean_story}\n\n"
+        "Описание сцены (начни со слова «Нарисуй»):"
     )
-    user_prompt = f"Тема поста: {title}\nКраткий текст:\n{post_text[:600]}\n\nОписание сцены (начни со слова «Нарисуй»):"
 
     try:
-        scene = client.generate(system_prompt, user_prompt, temperature=0.55, max_tokens=150).strip()
+        scene = client.generate(system_prompt, user_prompt, temperature=0.5, max_tokens=160).strip()
         scene = clean_markdown_for_vk(scene).replace("\n", " ").strip()
         if len(scene) >= 30:
             if not scene.lower().startswith("нарисуй"):
                 scene = f"Нарисуй {scene}"
+            if yaroslavl_scene and "ярослав" not in scene.lower():
+                scene = scene.rstrip(".") + "." + yaroslavl_visual_tail
+            elif yaroslavl_scene and "волг" not in scene.lower() and "купол" not in scene.lower():
+                scene = scene.rstrip(".") + "." + yaroslavl_visual_tail
             return scene + anti_artifact_tail
     except AIProviderError as exc:
         logger.warning("Арт-директор использовал базовый сюжет иллюстрации: %s", exc)
@@ -1026,59 +1256,60 @@ def write_news_post(
     config: dict[str, Any],
     now: datetime | None = None,
 ) -> str:
-    """Генерирует живой авторский пост с лёгким водительским юмором и проверкой грамотности."""
-    dt = now or datetime.now(timezone.utc)
-    season_note = MONTH_SEASON_HINT.get(dt.month, "текущий сезон")
+    """Генерирует простой, живой и понятный каждому водителю пост по новости."""
     ai_cfg = config.get("ai", {})
-    temperature = float(ai_cfg.get("temperature", 0.65))
-    max_tokens = int(ai_cfg.get("max_tokens", 1200))
+    temperature = float(ai_cfg.get("temperature", 0.6))
+    max_tokens = int(ai_cfg.get("max_tokens", 1100))
 
     group_cfg = config.get("group", {})
     group_title = str(group_cfg.get("title", "Греем Мотор"))
     group_url = str(group_cfg.get("url") or "https://vk.ru/greem_motor")
     system_prompt = (
-        "Ты опытный автоэксперт и главный редактор узнаваемого автомобильного журнала ВКонтакте "
-        f"«{group_title}» (Ярославль и Ярославская область, 76 регион, {group_url}). "
-        "Концепция бренда «Греем Мотор» — тёплый, умный двухминутный выпуск, который водитель читает с интересом, "
-        "пока прогревается двигатель.\n"
-        "СТИЛЬ И ЮМОР:\n"
-        "- Пиши живо, по делу, безупречно грамотным русским языком без канцелярита и штампов.\n"
-        "- Обязательно вплети 1–2 лёгких, остроумных и добрых ироничных наблюдения из реальной жизни российского автомобилиста "
-        "(например, тонкую шутку про утренний мороз, шиномонтаж, пробки, вечный выбор между комфортом и надёжностью — "
-        "без клоунады, сленга и СТРОГО БЕЗ выдуманных историй про «моего знакомого/соседа»). "
-        "ВАЖНО: если тема касается ДТП или экстренных перекрытий — пиши спокойно и уважительно без шуток.\n"
-        "СТРОГИЕ ПРАВИЛА БЕЗ ОШИБОК:\n"
-        "1. НИКОГДА не используй Markdown: никаких звёздочек **жирный**, решёток ### для заголовков и [ссылок](url).\n"
-        "2. Строго проверяй орфографию, пунктуацию, падежи и склонение числительных.\n"
-        "3. Не выдумывай цифры, штрафы, цены или законы, которых нет в фактуре новости.\n"
-        "4. Не вставляй внешние ссылки и хештеги (хештеги система добавит сама автоматически).\n"
-        "5. Объём текста: 700–1550 знаков, короткие удобные абзацы по 2–3 предложения."
+        f"Ты автор и ведущий водительского сообщества ВКонтакте «{group_title}» ({group_url}).\n"
+        "ГЛАВНОЕ ПРАВИЛО — ПИШИ ПРОСТО И ПОНЯТНО ДЛЯ ОБЫЧНЫХ ЛЮДЕЙ:\n"
+        "- Рассказывай новость так, как толковый водитель простыми словами пересказывает её другу или соседу во дворе.\n"
+        "- Никаких сложных технических терминов, ГОСТов, химических норм (вроде «мг/кг», «классов К2/К5»), чиновничьих "
+        "оборотов и канцелярита («эксплуатационные характеристики», «инцидент произошёл», «халатность автовладельца»). "
+        "Если в новости есть сложный параметр — сразу объясни по-человечески, что это значит на деле для обычной машины и кошелька.\n"
+        "- Пиши цельным живым рассказом в 3 коротких абзацах (по 2–3 простых предложения). НЕ дроби пост на подзаголовки "
+        "с галочками и НЕ пиши заголовок КАПСЛОКОМ.\n"
+        "- Если тема практическая (бензин, ремонт, цены, покупка авто, ПДД) — просто и по-житейски подскажи в тексте, "
+        "как водителю не переплатить и поберечь машину. Если же новость — забавный дорожный курьёз, просто с улыбкой "
+        "расскажи историю БЕЗ натянутых советов и нравоучений.\n"
+        "- Лёгкая добрая улыбка уместна там, где позволяет тема (в темах ДТП и происшествий пиши спокойно и серьёзно). "
+        "Строго не выдумывай историй от первого лица и про «знакомых».\n"
+        "- Не притягивай за уши погоду и не вставляй шаблонные фразы «Для ярославцев особенно актуально...», если сама новость общероссийская.\n"
+        "- Обращайся к читателям уважительно на «вы», не используй Markdown (**звёздочки**, ###) и не пиши хештеги."
     )
 
-    local_hint = (
-        "Новость напрямую касается Ярославля / 76 региона — сделай тёплый местный акцент для водителей."
-        if candidate.category == "local_76"
-        else "Если уместно по смыслу (без натяжки), добавь короткую практическую ремарку для российских/ярославских условий эксплуатации."
+    excerpt = humanize_technical_jargon(candidate.best_text[:2800], aggressive_source_mode=True)
+    yaroslavl_news = is_yaroslavl_topic(candidate.title, excerpt, candidate.category)
+    city_hint = (
+        "- ВАЖНО: эта новость произошла в Ярославле / Ярославской области — обязательно укажи город прямо в заголовке на первой строке.\n"
+        if yaroslavl_news
+        else ""
     )
-
-    excerpt = candidate.best_text[:2800]
     user_prompt = (
-        f"СЕЗОН СЕЙЧАС: {season_note}.\n"
         f"ИСТОЧНИК: {candidate.source_name}\n"
         f"КАТЕГОРИЯ: {candidate.category}\n"
-        f"ЗАГОЛОВОК: {candidate.title}\n\n"
-        f"ФАКТУРА НОВОСТИ:\n{excerpt}\n\n"
-        "ТРЕБОВАНИЯ К ПОСТУ:\n"
-        "- Первая строка: яркий, цепляющий заголовок с 1 уместным эмодзи в начале (например 🚗, ⚡, 🔧, 🛞, 📌).\n"
-        "- Далее: суть события бодрым живым языком с ключевыми деталями, цифрами и лёгкой водительской иронией там, где она к месту.\n"
-        "- Отдельный короткий блок с подзаголовком «💡 Что важно учесть водителю:» (1–2 практических совета или вывод по теме).\n"
-        f"- {local_hint}\n"
-        "- В самом конце: 1 живой вопрос к подписчикам, чтобы водители захотели обсудить тему в комментариях.\n"
-        "- Выведи ТОЛЬКО готовый текст поста без вступлений от себя."
+        f"ЗАГОЛОВОК ИСТОЧНИКА: {candidate.title}\n\n"
+        f"ТЕКСТ НОВОСТИ:\n{excerpt}\n\n"
+        "Напиши короткий, очень понятный и живой пост для обычных людей (650–1200 знаков):\n"
+        "1) Первая строка: чёткий, конкретный заголовок обычным шрифтом (без КАПСЛОКА и без двоеточия на конце) с 1 уместным эмодзи в начале.\n"
+        f"{city_hint}"
+        "2) 2–3 коротких связных абзаца человеческим языком (БЕЗ списков с галочками ✅ и БЕЗ подзаголовков): что произошло и почему это важно обычному водителю.\n"
+        "3) В конце — один простой жизненный вопрос подписчикам для обсуждения в комментариях.\n"
+        "Выведи ТОЛЬКО готовый текст поста."
     )
 
     raw_post = client.generate(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens)
-    checked_post = proofread_vk_post_with_ai(client, raw_post, f"{candidate.title}\n{excerpt}", config)
+    checked_post = proofread_vk_post_with_ai(
+        client,
+        raw_post,
+        f"{candidate.title}\n{excerpt}",
+        config,
+        require_yaroslavl=yaroslavl_news,
+    )
     return finalize_vk_post(
         checked_post,
         config,
@@ -1094,40 +1325,37 @@ def write_evergreen_tip_post(
     config: dict[str, Any],
     now: datetime | None = None,
 ) -> str:
-    """Генерирует полезный авторский пост-разбор с лёгким гаражным юмором и проверкой грамотности."""
+    """Генерирует понятный каждому водителю житейский совет по уходу за автомобилем."""
     dt = now or datetime.now(timezone.utc)
     season_note = MONTH_SEASON_HINT.get(dt.month, "текущий сезон")
     ai_cfg = config.get("ai", {})
-    temperature = float(ai_cfg.get("temperature", 0.65))
-    max_tokens = int(ai_cfg.get("max_tokens", 1200))
+    temperature = float(ai_cfg.get("temperature", 0.6))
+    max_tokens = int(ai_cfg.get("max_tokens", 1150))
 
     group_title = str(config.get("group", {}).get("title", "Греем Мотор"))
     system_prompt = (
-        "Ты практикующий мастер-приёмщик, автоподборщик и редактор сообщества ВКонтакте "
-        f"«{group_title}» (Ярославль, 76 регион). Пиши экспертно, тепло, безупречно грамотным русским языком, "
-        "с лёгкой доброй водительской иронией опытного товарища по автосервису (без плоских шуток и сленга).\n"
-        "СТРОГИЕ ПРАВИЛА ФОРМАТИРОВАНИЯ ВКОНТАКТЕ:\n"
-        "1. НИКОГДА не используй Markdown: никаких **звёздочек**, __подчёркиваний__ и ### заголовков.\n"
-        "2. Строго следи за орфографией, пунктуацией и точностью автомобильных терминов.\n"
-        "3. Для списков используй аккуратные маркеры «•» или цифры «1)», «2)».\n"
-        "4. Не пиши хештеги (система добавит их сама).\n"
-        "5. Объём: 900–1750 знаков, короткие абзацы с пустыми строками между ними."
+        f"Ты добрый, опытный автомеханик и автор сообщества ВКонтакте «{group_title}» (Ярославль).\n"
+        "Объясняй устройство и обслуживание машины МАКСИМАЛЬНО ПРОСТЫМИ ЧЕЛОВЕЧЕСКИМИ СЛОВАМИ — чтобы всё сразу понял "
+        "даже новичок, который вчера сел за руль.\n"
+        "ПРАВИЛА:\n"
+        "1. Никакой зауми, сложных терминов без простого пояснения, никакого КАПСЛОКА и никакого Markdown (**звёздочек**, ###).\n"
+        "2. Пиши коротко, тепло и по делу (800–1350 знаков), с уважительным обращением на «вы».\n"
+        "3. Не пиши хештеги (система добавит их сама)."
     )
 
     title = str(topic.get("title", "Полезный совет автомобилисту"))
     angle = str(topic.get("angle", ""))
 
     user_prompt = (
-        f"СЕЗОН СЕЙЧАС: {season_note}.\n"
-        f"ТЕМА РАЗБОРА: {title}\n\n"
-        f"КЛЮЧЕВЫЕ ТЕЗИСЫ:\n{angle}\n\n"
-        "ТРЕБОВАНИЯ К ПОСТУ:\n"
-        "- Первая строка: сильный заголовок рубрики (начни с 🔧 или 🛞).\n"
-        "- Короткое жизненное вступление с лёгкой доброй иронией (почему на этом часто обжигаются водители).\n"
-        "- Чёткий практический чек-лист из 3–5 пунктов без воды и гаражных мифов.\n"
-        "- Короткий итог: как сэкономить ресурс машины и деньги на ремонте.\n"
-        "- В конце: живой вопрос к подписчикам об их личном опыте.\n"
-        "- Выведи ТОЛЬКО готовый текст поста."
+        f"СЕЗОН: {season_note}.\n"
+        f"ТЕМА СОВЕТА: {title}\n\n"
+        f"О ЧЁМ РАССКАЗАТЬ:\n{angle}\n\n"
+        "Напиши понятный каждому водителю пост:\n"
+        "- Первая строка: живой понятный заголовок (начни с 🔧 или 🛞, без КАПСЛОКА).\n"
+        "- Короткое объяснение простыми словами, почему на эту мелочь стоит обратить внимание.\n"
+        "- 3–4 коротких и конкретных шага (через тире «—»), что легко проверить самому без лишних трат.\n"
+        "- В конце — простой вопрос к читателям об их опыте.\n"
+        "Выведи ТОЛЬКО готовый текст поста."
     )
 
     raw_post = client.generate(system_prompt, user_prompt, temperature=temperature, max_tokens=max_tokens)
@@ -1149,8 +1377,11 @@ def rewrite_existing_post_text(
     category: str = "news",
     source_name: str = "",
     source_url: str = "",
+    source_facts: str = "",
+    original_title: str = "",
+    is_local_yaroslavl: bool = False,
 ) -> str:
-    """Полностью переписывает уже выпущенный пост в фирменном стиле бренда «Греем Мотор»."""
+    """Переписывает уже выпущенный пост простым, живым и понятным для обычных людей языком."""
     lines: list[str] = []
     detected_source = source_name.strip()
     for raw_ln in (existing_text or "").splitlines():
@@ -1172,7 +1403,14 @@ def rewrite_existing_post_text(
     clean_fact_base = re.sub(r"(?:https?://)?(?:m\.)?vk\.(?:ru|com)/autoyar076\b", "vk.ru/greem_motor", clean_fact_base, flags=re.IGNORECASE)
     clean_fact_base = re.sub(r"@autoyar076\b", "@greem_motor", clean_fact_base, flags=re.IGNORECASE)
 
-    if isinstance(client, TemplateFallbackClient) or len(clean_fact_base) < 80:
+    raw_primary = source_facts.strip() if len(source_facts.strip()) >= 100 else clean_fact_base
+    if original_title.strip():
+        raw_primary = f"Заголовок: {original_title.strip()}\n\n{raw_primary}"
+    primary_facts = humanize_technical_jargon(raw_primary, aggressive_source_mode=True)
+
+    yaroslavl_flag = is_local_yaroslavl or is_yaroslavl_topic(original_title, primary_facts, category)
+
+    if isinstance(client, TemplateFallbackClient) or len(primary_facts) < 80:
         return finalize_vk_post(
             clean_fact_base,
             config,
@@ -1181,33 +1419,48 @@ def rewrite_existing_post_text(
             source_url=source_url,
         )
 
+    yar_instruction = (
+        "- ВАЖНО: эта история произошла в Ярославле — обязательно укажи «в Ярославле» прямо в заголовке на первой строке "
+        "(не теряй название города!).\n"
+        if yaroslavl_flag
+        else ""
+    )
+
     group_cfg = config.get("group", {})
     group_title = str(group_cfg.get("title", "Греем Мотор"))
     group_url = str(group_cfg.get("url") or "https://vk.ru/greem_motor")
     system_prompt = (
-        f"Ты главный редактор автомобильного журнала ВКонтакте «{group_title}» (Ярославль и 76 регион, {group_url}). "
-        "Твоя задача — заново, свежо и авторски переписать уже опубликованный пост в нашем фирменном стиле.\n"
-        "ФИРМЕННЫЙ ПОЧЕРК «ГРЕЕМ МОТОР»:\n"
-        "- Живой двухминутный выпуск, который приятно прочитать утром или вечером, пока прогревается двигатель.\n"
-        "- Вплети 1–2 тонких, остроумных и добрых ироничных наблюдения из реального быта автомобилиста "
-        "(например, что три огромных экрана в салоне плохо согревают ладони в −25 °C, если печка дует прохладой, или что русская зима проверяет оцинковку и аккумулятор честнее любого буклета). "
-        "ВАЖНО: если пост про тяжёлое ДТП — пиши спокойно и уважительно без юмора.\n"
-        "- Обращайся к подписчикам единообразно и уважительно на «вы» (никакого смешения «ты» и «вы»).\n"
-        "- Сохрани реальные факты, имена экспертов, марки и цифры из исходного текста, ничего не выдумывая от себя.\n"
-        "- Строго без Markdown (**звёздочек**, ### заголовков), без казённых подзаголовков вроде «Вопрос опытным водителям:», "
-        "«Делимся опытом:» или «Но не всё так однозначно», без внешних ссылок и без хештегов (подпись с адресом группы и хештеги система добавит сама внизу).\n"
-        "- Структура: цепляющий заголовок с 1–2 эмодзи -> связный живой рассказ по сути в 2 коротких абзацах без дробления на подзаголовки -> "
-        "практический блок «💡 На заметку водителю:» (2–3 чётких пункта через тире) -> живой вопрос подписчикам в конце обычным абзацем без подзаголовка."
+        f"Ты шеф-редактор водительского сообщества ВКонтакте «{group_title}» ({group_url}). "
+        "Твоя задача — переписать пост С НУЛЯ максимально ПРОСТЫМ, ЧЕЛОВЕЧЕСКИМ И ПОНЯТНЫМ языком для обычных людей.\n"
+        "ЧЕГО В ПОСТЕ БЫТЬ КАТЕГОРИЧЕСКИ НЕ ДОЛЖНО:\n"
+        "- Никаких лабораторных единиц и непонятных кодов (никаких «мг/кг», «классов К2/К3/К5», «МИЦ ГСМ», «ВНС», "
+        "«эксплуатационных характеристик»). Переводи всё на обычный человеческий язык: например, «в бензине оказалось "
+        "слишком много серы, из-за чего страдают свечи и двигатель и растёт расход».\n"
+        "- Никаких списков с галочками ✅ и никаких дробных подзаголовков внутри текста (никаких «До трёх лет: ...», "
+        "«Что ещё стоит учитывать:», «Ключевые находки:»). Пиши плавным связным рассказом в 3 коротких абзацах!\n"
+        "- Никаких размытых первых строк вроде «Вот такая история произошла...» или «Советы врача помогут...:».\n"
+        "- Никаких выдумок (не пиши, что птица садилась на капот и не пиши «свой номер» про птицу — напиши просто, что пролетавшая мимо дорожной камеры чайка случайно закрыла крылом номер автомобиля).\n"
+        "КАК НАПИСАТЬ ОТЛИЧНО:\n"
+        "- Первая строка: ясный, конкретный заголовок обычным шрифтом (без КАПСЛОКА и без двоеточия на конце) с 1 уместным эмодзи.\n"
+        f"{yar_instruction}"
+        "- Далее 3 коротких связных абзаца живым, тёплым человеческим языком: в чём суть и какой простой вывод для обычного водителя.\n"
+        "- В конце — один короткий, естественный вопрос читателям (на «вы») для обсуждения в комментариях.\n"
+        "- Грамотный русский язык (проверь падежи: «избежать штрафа», а не «избежать штраф»), строго без Markdown (**звёздочек**, ###), без ссылок и без хештегов."
     )
     user_prompt = (
         f"КАТЕГОРИЯ: {category}\n"
-        f"ИСХОДНЫЙ ПОСТ ДЛЯ ПЕРЕРАБОТКИ:\n{clean_fact_base}\n\n"
-        "Перепиши этот материал свежо, живо, с лёгким умным водительским юмором и безупречным русским языком "
-        "(объём 800–1500 знаков). Выведи ТОЛЬКО готовый текст поста."
+        f"ФАКТЫ НОВОСТИ:\n{primary_facts[:2800]}\n\n"
+        "Напиши простой, связный и понятный каждому человеку пост (650–1150 знаков) без списков с галочками. Выведи ТОЛЬКО готовый текст поста."
     )
 
-    draft = client.generate(system_prompt, user_prompt, temperature=0.65, max_tokens=1250)
-    checked = proofread_vk_post_with_ai(client, draft, clean_fact_base, config)
+    draft = client.generate(system_prompt, user_prompt, temperature=0.5, max_tokens=1150)
+    checked = proofread_vk_post_with_ai(
+        client,
+        draft,
+        primary_facts,
+        config,
+        require_yaroslavl=yaroslavl_flag,
+    )
     return finalize_vk_post(
         checked,
         config,

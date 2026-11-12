@@ -494,86 +494,92 @@ class VKPublisher:
         return []
 
     def upload_wall_photo(self, image: PreparedImage) -> str | None:
-        """Загружает фото на сервер ВК и возвращает строку attachment вида 'photo123_456'."""
+        """Загружает фото на сервер ВК (с повторами при сетевых сбоях) и возвращает строку 'photo123_456'."""
         group_id = self.resolve_group_id()
         photo_token = self.vk_user_token or self.vk_token
 
-        try:
-            upload_srv = self.call_api(
-                "photos.getWallUploadServer",
-                {"group_id": group_id},
-                token=photo_token,
-            )
-        except VKAPIError as exc:
-            if exc.code in {15, 27}:
-                logger.warning(
-                    "ВК отклонил загрузку фото с кодом %d (%s): методы photos.* требуют токен пользователя-админа "
-                    "(VK_TOKEN пользователя с правами wall,photos,groups,offline или отдельный секрет VK_USER_TOKEN). "
-                    "Пост будет опубликован без вложенного фото.",
-                    exc.code,
-                    exc.vk_message,
+        for attempt in range(1, 4):
+            try:
+                upload_srv = self.call_api(
+                    "photos.getWallUploadServer",
+                    {"group_id": group_id},
+                    token=photo_token,
                 )
-                return None
-            logger.warning("Ошибка photos.getWallUploadServer: %s", exc)
-            return None
+            except VKAPIError as exc:
+                if exc.code in {15, 27}:
+                    logger.warning(
+                        "ВК отклонил загрузку фото с кодом %d (%s): методы photos.* требуют токен пользователя-админа "
+                        "(VK_TOKEN пользователя с правами wall,photos,groups,offline или отдельный секрет VK_USER_TOKEN). "
+                        "Пост будет опубликован без вложенного фото.",
+                        exc.code,
+                        exc.vk_message,
+                    )
+                    return None
+                logger.warning("Ошибка photos.getWallUploadServer (попытка %d/3): %s", attempt, exc)
+                time.sleep(1.0 * attempt)
+                continue
 
-        upload_url = str((upload_srv or {}).get("upload_url", "")).strip()
-        if not upload_url:
-            logger.warning("photos.getWallUploadServer не вернул upload_url")
-            return None
+            upload_url = str((upload_srv or {}).get("upload_url", "")).strip()
+            if not upload_url:
+                logger.warning("photos.getWallUploadServer не вернул upload_url (попытка %d/3)", attempt)
+                time.sleep(1.0 * attempt)
+                continue
 
-        body, content_type = encode_multipart_photo(
-            "photo",
-            image.filename,
-            image.mime_type,
-            image.data,
-        )
-        req = urllib.request.Request(
-            upload_url,
-            data=body,
-            headers={
-                "Content-Type": content_type,
-                "User-Agent": USER_AGENT,
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=35, context=self.ssl_ctx) as resp:
-                uploaded = json.loads(resp.read().decode("utf-8", errors="replace"))
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-            logger.warning("Сбой загрузки файла фото на upload_url ВК: %s", exc)
-            return None
-
-        photo_field = uploaded.get("photo")
-        if not photo_field or photo_field == "[]":
-            logger.warning("Сервер загрузки ВК не принял файл изображения (пустое поле photo)")
-            return None
-
-        try:
-            saved = self.call_api(
-                "photos.saveWallPhoto",
-                {
-                    "group_id": group_id,
-                    "photo": photo_field,
-                    "server": uploaded.get("server"),
-                    "hash": uploaded.get("hash"),
-                },
-                token=photo_token,
+            body, content_type = encode_multipart_photo(
+                "photo",
+                image.filename,
+                image.mime_type,
+                image.data,
             )
-        except VKAPIError as exc:
-            logger.warning("Ошибка сохранения фото photos.saveWallPhoto: %s", exc)
-            return None
+            req = urllib.request.Request(
+                upload_url,
+                data=body,
+                headers={
+                    "Content-Type": content_type,
+                    "User-Agent": USER_AGENT,
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=40, context=self.ssl_ctx) as resp:
+                    uploaded = json.loads(resp.read().decode("utf-8", errors="replace"))
+            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+                logger.warning("Сбой загрузки файла фото на upload_url ВК (попытка %d/3): %s", attempt, exc)
+                time.sleep(1.2 * attempt)
+                continue
 
-        if isinstance(saved, list) and saved:
-            item = saved[0]
-            owner_id = item.get("owner_id")
-            media_id = item.get("id")
-            access_key = item.get("access_key")
-            if owner_id is not None and media_id is not None:
-                att = f"photo{owner_id}_{media_id}"
-                if access_key:
-                    att = f"{att}_{access_key}"
-                return att
+            photo_field = uploaded.get("photo")
+            if not photo_field or photo_field == "[]":
+                logger.warning("Сервер загрузки ВК вернул пустое поле photo (попытка %d/3)", attempt)
+                time.sleep(1.2 * attempt)
+                continue
+
+            try:
+                saved = self.call_api(
+                    "photos.saveWallPhoto",
+                    {
+                        "group_id": group_id,
+                        "photo": photo_field,
+                        "server": uploaded.get("server"),
+                        "hash": uploaded.get("hash"),
+                    },
+                    token=photo_token,
+                )
+            except VKAPIError as exc:
+                logger.warning("Ошибка сохранения фото photos.saveWallPhoto (попытка %d/3): %s", attempt, exc)
+                time.sleep(1.2 * attempt)
+                continue
+
+            if isinstance(saved, list) and saved:
+                item = saved[0]
+                owner_id = item.get("owner_id")
+                media_id = item.get("id")
+                access_key = item.get("access_key")
+                if owner_id is not None and media_id is not None:
+                    att = f"photo{owner_id}_{media_id}"
+                    if access_key:
+                        att = f"{att}_{access_key}"
+                    return att
 
         return None
 

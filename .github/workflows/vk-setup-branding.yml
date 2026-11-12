@@ -29,7 +29,17 @@ on:
         type: boolean
         default: true
       rewrite_wall:
-        description: "Переписать уже выпущенные посты на стене под стиль «Греем Мотор»"
+        description: "Переписать уже выпущенные посты на стене простым языком «Греем Мотор»"
+        required: false
+        type: boolean
+        default: false
+      only_post_ids:
+        description: "Опционально: только указанные ID постов через запятую (например, 187,188)"
+        required: false
+        type: string
+        default: ""
+      keep_all_photos:
+        description: "Сохранить текущие фото у переписываемых постов без перегенерации"
         required: false
         type: boolean
         default: false
@@ -51,7 +61,7 @@ jobs:
   setup-branding:
     name: "Установка оформления «Греем Мотор» в vk.ru/greem_motor"
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     env:
       VK_TOKEN: ${{ secrets.VK_TOKEN || secrets.VK_ACCESS_TOKEN || secrets.VK_API_TOKEN || secrets.TOKEN }}
@@ -98,6 +108,12 @@ jobs:
           fi
           if [ "${{ inputs.rewrite_wall }}" = "true" ]; then
             ARGS+=(--rewrite-wall)
+          fi
+          if [ -n "${{ inputs.only_post_ids }}" ]; then
+            ARGS+=(--only-post-ids "${{ inputs.only_post_ids }}")
+          fi
+          if [ "${{ inputs.keep_all_photos }}" = "true" ]; then
+            ARGS+=(--keep-all-photos)
           fi
           if [ "${{ inputs.backfill_photos }}" = "false" ]; then
             ARGS+=(--skip-backfill)
