@@ -1,4 +1,41 @@
 {
-  "fatal": "run_agent() got an unexpected keyword argument 'max_posts'",
-  "trace": "Traceback (most recent call last):\n  File \"/home/runner/work/witch-game/witch-game/vk-news-agent/_probe_upload.py\", line 26, in main\n    rc = agent.run_agent(\n         ^^^^^^^^^^^^^^^^\nTypeError: run_agent() got an unexpected keyword argument 'max_posts'\n"
+  "agent_rc": 0,
+  "latest_published_entry": null,
+  "public_wall_posts": [
+    {
+      "id": 192,
+      "has_attachments_meta": false,
+      "has_compact_attachments": false,
+      "attachments_meta_preview": "",
+      "text_head": "&#128663;&#128295; Популярные седаны из Кореи и Китая: советы экспертов Автоэксперт Дмитрий Рогов рассказал, какие модели автомобилей чаще всего выбирают российские водители при бю"
+    },
+    {
+      "id": 191,
+      "has_attachments_meta": false,
+      "has_compact_attachments": false,
+      "attachments_meta_preview": "",
+      "text_head": "&#128663;&#128739;&#65039; Ремонт трассы М-8 в Ярославле Ремонт дорог в Ярославской области завершен! Участки трассы М-8 «Холмогоры» от 113,8 до 221-го километра привели в порядок."
+    },
+    {
+      "id": 190,
+      "has_attachments_meta": false,
+      "has_compact_attachments": false,
+      "attachments_meta_preview": "",
+      "text_head": "&#128663;&#128295; Почему владельцы Renault Logan и Sandero всё чаще сталкиваются с признанием машин «тотальными» Многие водители наверняка сталкивались с ситуацией, когда после се"
+    },
+    {
+      "id": 188,
+      "has_attachments_meta": false,
+      "has_compact_attachments": false,
+      "attachments_meta_preview": "",
+      "text_head": "&#128663; Как сделать поездки с ребёнком в машине спокойнее и приятнее? Многие дети боятся ездить в машине и переживают стресс во время дороги. Нейропсихолог Татьяна Чурюмова подел"
+    },
+    {
+      "id": 187,
+      "has_attachments_meta": false,
+      "has_compact_attachments": false,
+      "attachments_meta_preview": "",
+      "text_head": "&#128038; В Ярославле чайка спасла водителя от штрафа В Ярославле любопытная чайка решила поучаствовать в дорожных делах! Случилось это днём 11 апреля 2026 года. Автомобиль Honda н"
+    }
+  ]
 }
