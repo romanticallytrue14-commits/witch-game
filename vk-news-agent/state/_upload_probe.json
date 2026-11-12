@@ -1,109 +1,72 @@
 {
-  "tokens": {
-    "VK_TOKEN": {
-      "present": true,
-      "shape": {
-        "present": true,
-        "len": 220,
-        "contains_access_token_param": false,
-        "contains_ampersand": false,
-        "starts_with_http": false,
-        "starts_with_vk1": true,
-        "starts_with_vk2": false,
-        "has_quotes_or_spaces": false
-      },
-      "users.get": {
-        "ok": true,
-        "summary": "[]"
-      },
-      "groups.getTokenPermissions": {
-        "ok": true,
-        "summary": "{'mask': 134488068, 'permissions': [{'name': 'photos', 'setting': 4}, {'name': 'wall', 'setting': 8192}, {'name': 'manage', 'setting': 262144}, {'name': 'market', 'setting': 134217728}]}"
-      },
-      "groups.getById": {
-        "ok": true,
-        "summary": "{'groups': [{'id': 85500918, 'name': 'Греем Мотор', 'screen_name': 'greem_motor', 'is_closed': 0, 'type': 'group', 'photo_50': 'https://sun1-89.vkuserphoto.ru/s/v1/ig2/N9YYrUYG8KJ1SlQOGpHdVTAM_4eEf5OWH0YRWmOIw5lW8k67FaWH"
-      }
-    },
-    "VK_USER_TOKEN": {
-      "present": true,
-      "shape": {
-        "present": true,
-        "len": 294,
-        "contains_access_token_param": true,
-        "contains_ampersand": true,
-        "starts_with_http": true,
-        "starts_with_vk1": false,
-        "starts_with_vk2": false,
-        "has_quotes_or_spaces": false
-      },
-      "users.get": {
-        "ok": false,
-        "code": 5,
-        "msg": "User authorization failed: invalid access_token (4)."
-      },
-      "groups.getTokenPermissions": {
-        "ok": false,
-        "code": 5,
-        "msg": "User authorization failed: invalid access_token (4)."
-      },
-      "groups.getById": {
-        "ok": false,
-        "code": 5,
-        "msg": "User authorization failed: invalid access_token (4)."
-      }
-    },
-    "VK_ADMIN_TOKEN": {
-      "present": false,
-      "shape": {
-        "present": false,
-        "len": 0,
-        "contains_access_token_param": false,
-        "contains_ampersand": false,
-        "starts_with_http": false,
-        "starts_with_vk1": false,
-        "starts_with_vk2": false,
-        "has_quotes_or_spaces": false
-      }
-    },
-    "USER_TOKEN": {
-      "present": false,
-      "shape": {
-        "present": false,
-        "len": 0,
-        "contains_access_token_param": false,
-        "contains_ampersand": false,
-        "starts_with_http": false,
-        "starts_with_vk1": false,
-        "starts_with_vk2": false,
-        "has_quotes_or_spaces": false
-      }
-    }
+  "pub_user_token_len": 220,
+  "pub_user_token_starts_vk1": true,
+  "user_users.get": {
+    "ok": false,
+    "code": 9,
+    "msg": "Flood control"
   },
-  "upload_probes": {
-    "messages_photo_peer_0": {
-      "ok": true,
-      "owner_id": -85500918,
-      "id": 457239235,
-      "has_access_key": true,
-      "att_with_key": "photo-85500918_457239235_d353f975ed1d7d3583",
-      "att_plain": "photo-85500918_457239235"
+  "user_wall.get": {
+    "ok": false,
+    "code": 9,
+    "msg": "Flood control"
+  },
+  "user_photos.getWallUploadServer": {
+    "ok": false,
+    "code": 9,
+    "msg": "Flood control"
+  },
+  "wall_before": [
+    {
+      "id": 191,
+      "attachments": [],
+      "text_len": 1155
     },
-    "docs_wall_jpg": {
-      "ok": false,
-      "error": "VK API error 15 в методе docs.getWallUploadServer: Access denied: no access to call this method. It cannot be called with current scopes."
+    {
+      "id": 190,
+      "attachments": [],
+      "text_len": 1417
     },
-    "docs_wall_gif": {
-      "ok": false,
-      "error": "VK API error 15 в методе docs.getWallUploadServer: Access denied: no access to call this method. It cannot be called with current scopes."
+    {
+      "id": 188,
+      "attachments": [],
+      "text_len": 1683
     },
-    "wall_photo_group_token": {
-      "ok": false,
-      "error": "VK API error 27 в методе photos.getWallUploadServer: Group authorization failed: method is unavailable with group auth."
+    {
+      "id": 187,
+      "attachments": [],
+      "text_len": 744
     },
-    "wall_getById_group_token": {
-      "ok": false,
-      "error": "VK API error 27 в методе wall.getById: Group authorization failed: method is unavailable with group auth."
+    {
+      "id": 186,
+      "attachments": [],
+      "text_len": 1400
+    },
+    {
+      "id": 184,
+      "attachments": [],
+      "text_len": 919
+    },
+    {
+      "id": 177,
+      "attachments": [],
+      "text_len": 1321
     }
-  }
+  ],
+  "uploaded_msg_photo": {
+    "att_with_key": "photo-85500918_457239236_0413689c0acdff2106",
+    "att_plain": "photo-85500918_457239236"
+  },
+  "edit_attempts_with_group_token": [
+    {
+      "variant": "with_access_key",
+      "api_ok": false,
+      "error": "VK API error 27 в методе wall.edit: Group authorization failed: method is unavailable with group auth."
+    },
+    {
+      "variant": "without_access_key",
+      "api_ok": false,
+      "error": "VK API error 27 в методе wall.edit: Group authorization failed: method is unavailable with group auth."
+    }
+  ]
 }
