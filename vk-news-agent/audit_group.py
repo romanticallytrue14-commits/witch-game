@@ -283,6 +283,90 @@ def _scan_dates(html: str) -> list[tuple[int, str]]:
     return uniq
 
 
+def _match_brace(s: str, start: int) -> int | None:
+    """Индекс символа после закрывающей скобки объекта, начинающегося в start."""
+    depth = 0
+    i = start
+    in_str = False
+    esc = False
+    while i < len(s):
+        c = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        else:
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+        i += 1
+    return None
+
+
+def extract_embedded_posts(html: str, now_ts: int | None = None) -> list[dict[str, Any]]:
+    """Достаёт записи из JSON, встроенного в страницу (в т.ч. HTML-экранированного).
+
+    VK встраивает данные записей в атрибуты/скрипты страницы стен
+    (в т.ч. в `&quot;...&quot;`), откуда их можно прочитать без access_token.
+    """
+    import html as html_mod
+
+    un = html_mod.unescape(html)
+    now_ts = now_ts or int(dt.datetime.now(MSK).timestamp())
+    posts: list[dict[str, Any]] = []
+    seen: set[tuple[int, int | None]] = set()
+    for m in re.finditer(r'"date"\s*:\s*(\d{10})', un):
+        ts = int(m.group(1))
+        if not (1577836800 <= ts <= now_ts + 300):
+            continue
+        # Ищем начало JSON-объекта, которому принадлежит эта дата.
+        obj_text = None
+        idx = m.start()
+        for _ in range(150):
+            idx = un.rfind("{", 0, idx)
+            if idx < 0:
+                break
+            end = _match_brace(un, idx)
+            if end and idx < m.start() < end:
+                obj_text = un[idx:end]
+                break
+        if not obj_text:
+            continue
+        try:
+            obj = json.loads(obj_text)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if not any(k in obj for k in ("text", "post_source", "header")):
+            continue  # не запись стены (например, черновик/настройки)
+        pid = obj.get("id")
+        if (ts, pid) in seen:
+            continue
+        seen.add((ts, pid))
+        posts.append(
+            {
+                "date": obj.get("date", ts),
+                "text": obj.get("text") or "",
+                "post_source": obj.get("post_source") or {},
+                "id": pid,
+                "from_id": obj.get("from_id"),
+                "is_pinned": bool(obj.get("is_pinned")),
+                "marked_as_ads": bool(obj.get("marked_as_ads")),
+            }
+        )
+    posts.sort(key=lambda p: int(p["date"]), reverse=True)
+    return posts
+
+
 def scrape_wall(
     screen: str,
     notes: list[str],
@@ -370,8 +454,14 @@ def scrape_wall(
                 dbg.append(body[:3000])
                 break
 
+        # 0) JSON записей, встроенный в страницу (в т.ч. HTML-экранированный &quot;…&quot;).
+        embedded = extract_embedded_posts(html)
+        if embedded:
+            posts.extend(embedded)
+            notes.append(f"записи найдены во встроенном JSON страницы {url}: {len(embedded)} шт.")
+
         # 1) Иногда VK встраивает состояние страницы в JSON.
-        m = re.search(r"__PRELOADED_STATE__\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
+        m = None if posts else re.search(r"__PRELOADED_STATE__\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
         if m:
             try:
                 state = json.loads(m.group(1))
