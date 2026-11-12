@@ -110,6 +110,7 @@ def rewrite_existing_wall_posts(
     pinned_post_id: int = 0,
     regenerate_local_images: bool = True,
     preview_save_dir: Path | None = None,
+    only_post_ids: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Переписывает уже выпущенные посты простым живым языком и обновляет иллюстрации Ярославля."""
     if not wall_items:
@@ -132,6 +133,8 @@ def rewrite_existing_wall_posts(
     for w_item in wall_items:
         pid = int(w_item.get("id") or 0)
         if pid <= 0 or pid == pinned_post_id or w_item.get("is_pinned"):
+            continue
+        if only_post_ids and pid not in only_post_ids:
             continue
         p_src = w_item.get("post_source") or {}
         if p_src.get("data") == "profile_photo":
@@ -188,24 +191,35 @@ def rewrite_existing_wall_posts(
         new_img: PreparedImage | None = None
 
         if not existing_att or (regenerate_local_images and yaroslavl_post):
-            new_img = prepare_ai_image_for_post(
-                ai_client,
-                title=title_hint,
-                post_text=new_text,
-                category=cat,
-                config=config,
-            )
+            cached_preview = preview_save_dir / f"_yaroslavl_preview_{pid}.jpg" if preview_save_dir is not None else None
+            if cached_preview is not None and cached_preview.is_file():
+                raw_cached = cached_preview.read_bytes()
+                dims = inspect_image_dimensions(raw_cached)
+                if dims is not None:
+                    new_img = PreparedImage(
+                        data=raw_cached,
+                        mime_type=dims[0],
+                        filename=f"yaroslavl_{pid}.jpg",
+                        width=dims[1],
+                        height=dims[2],
+                        source_url=f"cached_ai:{cached_preview.name}",
+                    )
+            if new_img is None:
+                new_img = prepare_ai_image_for_post(
+                    ai_client,
+                    title=title_hint,
+                    post_text=new_text,
+                    category=cat,
+                    config=config,
+                )
             if new_img is None and not existing_att:
                 new_img = load_fallback_editorial_card(config, cat)
-            if new_img is not None and yaroslavl_post and preview_save_dir is not None:
+            if new_img is not None and yaroslavl_post and preview_save_dir is not None and not str(new_img.source_url).startswith("cached_ai:"):
                 preview_save_dir.mkdir(parents=True, exist_ok=True)
                 (preview_save_dir / f"_yaroslavl_preview_{pid}.jpg").write_bytes(new_img.data)
 
         try:
-            if new_img is not None:
-                res = pub.edit_wall_post(pid, new_text, image=new_img)
-            else:
-                res = pub.edit_wall_post(pid, new_text, keep_attachments=existing_att)
+            res = pub.edit_wall_post(pid, new_text, image=new_img, keep_attachments=existing_att)
             logger.info(
                 "Пост #%d успешно переписан простым языком (Ярославль=%s, новое фото=%s)!",
                 pid,
@@ -306,6 +320,7 @@ def apply_group_branding(
     backfill_photos: bool = True,
     rewrite_wall: bool = False,
     save_verify_json: Path | None = None,
+    only_post_ids: set[int] | None = None,
 ) -> int:
     config = load_config(config_path)
     group_cfg = config.get("group", {})
@@ -489,6 +504,7 @@ def apply_group_branding(
             wall_items,
             pinned_post_id=int(b_state.get("pinned_post_id") or 0),
             preview_save_dir=save_verify_json.parent if save_verify_json is not None else None,
+            only_post_ids=only_post_ids,
         )
         if rewritten_list:
             report_lines.append(f"- ✅ **Переписаны выпущенные посты в стиле «{title}»**: `{len(rewritten_list)}` шт.")
@@ -546,6 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force-new-pinned", action="store_true")
     p.add_argument("--skip-backfill", action="store_true")
     p.add_argument("--rewrite-wall", action="store_true", help="Переписать существующие посты стены под новый бренд")
+    p.add_argument("--only-post-ids", default="", help="Список ID постов через запятую (например, 187,188)")
     p.add_argument("--save-verify-json", default=None)
     return p
 
@@ -553,6 +570,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+    only_ids = {int(x.strip()) for x in str(args.only_post_ids or "").split(",") if x.strip().isdigit()} or None
     return apply_group_branding(
         config_path=Path(args.config),
         dry_run=args.dry_run,
@@ -564,6 +582,7 @@ def main(argv: list[str] | None = None) -> int:
         backfill_photos=not args.skip_backfill,
         rewrite_wall=args.rewrite_wall,
         save_verify_json=Path(args.save_verify_json) if args.save_verify_json else None,
+        only_post_ids=only_ids,
     )
 
 
