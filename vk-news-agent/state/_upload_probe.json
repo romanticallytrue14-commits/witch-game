@@ -1,14 +1,49 @@
 {
-  "wall_upload_without_group_id": {
+  "exec_getWallUploadServer": {
     "ok": false,
-    "error": "VK API error 9 в методе photos.getWallUploadServer: Flood control"
+    "error": "VK API error 9 в методе execute: Flood control"
   },
-  "group_album_upload": {
+  "exec_wallGet": {
     "ok": false,
-    "error": "VK API error 9 в методе photos.getAlbums: Flood control"
+    "error": "VK API error 9 в методе execute: Flood control"
   },
-  "wall_get_user": {
+  "user_docs.getWallUploadServer": {
     "ok": false,
-    "error": "VK API error 9 в методе wall.get: Flood control"
+    "error": "VK API error 9 в методе docs.getWallUploadServer: Flood control"
+  },
+  "user_docs.getMessagesUploadServer": {
+    "ok": false,
+    "error": "VK API error 9 в методе docs.getMessagesUploadServer: Flood control"
+  },
+  "user_photos.getChatUploadServer": {
+    "ok": false,
+    "error": "VK API error 9 в методе photos.getChatUploadServer: Flood control"
+  },
+  "user_photos.getMarketUploadServer": {
+    "ok": false,
+    "error": "VK API error 3 в методе photos.getMarketUploadServer: Unknown method passed"
+  },
+  "user_video.save": {
+    "ok": true,
+    "keys": [
+      "access_by_link_key",
+      "access_key",
+      "can_start_cover_ab_test",
+      "description",
+      "owner_id",
+      "thumb_upload_url",
+      "title",
+      "upload_config",
+      "upload_url",
+      "video_id"
+    ]
+  },
+  "group_exec_getWallUploadServer": {
+    "ok": false,
+    "error": "VK API error 27 в методе execute: Group authorization failed: method is unavailable with group auth."
+  },
+  "group_exec_wallGet": {
+    "ok": false,
+    "error": "VK API error 27 в методе execute: Group authorization failed: method is unavailable with group auth."
   }
 }
