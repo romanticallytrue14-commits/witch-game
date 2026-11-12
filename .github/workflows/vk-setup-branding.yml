@@ -1,9 +1,6 @@
 name: "Греем Мотор — Оформление группы ВК (в 1 клик)"
 
 on:
-  push:
-    branches:
-      - arena/18a9cae3-witch-game
   workflow_dispatch:
     inputs:
       dry_run:
@@ -32,7 +29,17 @@ on:
         type: boolean
         default: true
       rewrite_wall:
-        description: "Переписать уже выпущенные посты на стене под стиль «Греем Мотор»"
+        description: "Переписать уже выпущенные посты на стене простым языком «Греем Мотор»"
+        required: false
+        type: boolean
+        default: false
+      only_post_ids:
+        description: "Опционально: только указанные ID постов через запятую (например, 187,188)"
+        required: false
+        type: string
+        default: ""
+      keep_all_photos:
+        description: "Сохранить текущие фото у переписываемых постов без перегенерации"
         required: false
         type: boolean
         default: false
@@ -83,15 +90,6 @@ jobs:
 
       - name: Применение оформления сообщества «Греем Мотор»
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            python3 vk-news-agent/setup_group_profile.py --skip-info --skip-cover --skip-avatar --skip-pinned --skip-backfill --rewrite-wall --only-post-ids 187 --keep-all-photos --save-verify-json vk-news-agent/state/_plain_verify.json
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add vk-news-agent/state/_plain_verify.json || true
-            git commit -m "chore(vk): verify GigaChat-2 plain-language wall rewrite [skip ci]" || true
-            git push origin HEAD:arena/18a9cae3-witch-game || true
-            exit 0
-          fi
           ARGS=()
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS+=(--dry-run)
@@ -110,6 +108,12 @@ jobs:
           fi
           if [ "${{ inputs.rewrite_wall }}" = "true" ]; then
             ARGS+=(--rewrite-wall)
+          fi
+          if [ -n "${{ inputs.only_post_ids }}" ]; then
+            ARGS+=(--only-post-ids "${{ inputs.only_post_ids }}")
+          fi
+          if [ "${{ inputs.keep_all_photos }}" = "true" ]; then
+            ARGS+=(--keep-all-photos)
           fi
           if [ "${{ inputs.backfill_photos }}" = "false" ]; then
             ARGS+=(--skip-backfill)
