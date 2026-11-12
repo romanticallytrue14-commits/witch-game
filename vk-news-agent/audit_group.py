@@ -77,13 +77,34 @@ def post_form(url: str, payload: dict[str, str], timeout: int = 30) -> dict[str,
 
 
 def fetch_html(url: str, timeout: int = 30) -> str | None:
+    """Загрузка HTML с корректным определением кодировки.
+
+    vk.com исторически отдаёт страницы в windows-1251, m.vk.com — в UTF-8,
+    поэтому просто читать всё как UTF-8 нельзя (текст превращается в «кракозябры»).
+    """
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Language": "ru"})
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=SSL_CTX) as resp:
-            return resp.read().decode("utf-8", errors="replace")
+            raw = resp.read()
+            ctype = resp.headers.get("Content-Type", "")
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         _log(f"сетевой сбой {url}: {exc}")
         return None
+
+    charset = ""
+    m = re.search(r"charset=([\w-]+)", ctype, re.I)
+    if m:
+        charset = m.group(1).lower()
+    if not charset:
+        m = re.search(rb'charset=["\']?([\w-]+)', raw[:8192], re.I)
+        if m:
+            charset = m.group(1).decode("ascii", "ignore").lower()
+    for enc in filter(None, [charset, "utf-8", "windows-1251"]):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
 
 
 def call_api(
@@ -263,14 +284,35 @@ def scrape_wall(screen: str, notes: list[str], group_id: int | None = None) -> l
 
         # 2) Грубый поиск блоков записей в HTML.
         if not posts:
-            for chunk in re.split(r'(?=<div[^>]+class="[^"]*(?:wall_post|post_item|wall_item|post\b)[^"]*")', html):
-                dm = re.search(r'"date"\s*:\s*(\d{10})|data-date="(\d{10})"|date="(\d{10})"', chunk)
+            # Точное совпадение класса-токена: wall_post, но НЕ wall_post_text и т.п.
+            split_re = re.compile(
+                r'(?=<div[^>]+class="(?:[^"]*\s)?(?:wall_post|post_item|wall_item|post)(?:\s[^"]*)?")'
+            )
+            for chunk in split_re.split(html):
+                # Убираем скрипты/стили, иначе в текст записи попадает JS-код страницы.
+                clean = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", chunk, flags=re.S | re.I)
+                dm = re.search(
+                    r'(?:publish_date|date)\s*=\s*"(\d{10})"'
+                    r'|datetime="(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}[^"]*)"'
+                    r'|"date"\s*:\s*(\d{10})',
+                    clean,
+                )
                 if not dm:
                     continue
-                ts = int(dm.group(1) or dm.group(2) or dm.group(3))
+                if dm.group(1):
+                    ts = int(dm.group(1))
+                elif dm.group(2):
+                    try:
+                        ts = int(
+                            dt.datetime.fromisoformat(dm.group(2).replace("Z", "+00:00")).timestamp()
+                        )
+                    except ValueError:
+                        continue
+                else:
+                    ts = int(dm.group(3))
                 if not (1577836800 <= ts <= 1893456000):
                     continue
-                text = re.sub(r"<[^>]+>", " ", chunk)
+                text = re.sub(r"<[^>]+>", " ", clean)
                 text = re.sub(r"\s+", " ", text).strip()[:300]
                 if len(text) < 10:
                     continue
