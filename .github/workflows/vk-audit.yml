@@ -1,0 +1,73 @@
+name: "Аудит сообщества ВК (диагностика робота)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      screen_names:
+        description: "Адреса сообществ через запятую (например: neurohack_vk, greem_motor)"
+        required: false
+        type: string
+        default: "neurohack_vk"
+      count:
+        description: "Сколько записей читать со стены"
+        required: false
+        type: string
+        default: "50"
+      commit_report:
+        description: "Сохранить отчёты в репозиторий (vk-news-agent/state/audit/)"
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: vk-group-audit
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    name: "Аудит стен сообществ ВК"
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    env:
+      VK_TOKEN: ${{ secrets.VK_TOKEN || secrets.VK_ACCESS_TOKEN || secrets.VK_API_TOKEN || secrets.TOKEN }}
+      VK_USER_TOKEN: ${{ secrets.VK_USER_TOKEN || secrets.VK_ADMIN_TOKEN || secrets.USER_TOKEN || secrets.VK_USER_KEY || secrets.USER_VK_TOKEN }}
+      AUDIT_SCREEN_NAMES: ${{ inputs.screen_names }}
+      AUDIT_COUNT: ${{ inputs.count }}
+
+    steps:
+      - name: Получение кода репозитория
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Настройка Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Запуск аудита
+        id: audit
+        run: |
+          python3 vk-news-agent/audit_group.py \
+            --screen-names "${AUDIT_SCREEN_NAMES}" \
+            --count "${AUDIT_COUNT}" \
+            --out-dir vk-news-agent/state/audit | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Сохранение отчёта в репозиторий
+        if: ${{ success() && inputs.commit_report }}
+        continue-on-error: true
+        run: |
+          if [ -z "$(git status --porcelain vk-news-agent/state/audit)" ]; then
+            echo "Отчёт не изменился."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vk-news-agent/state/audit
+          git commit -m "chore(vk-audit): обновить отчёт аудита сообществ [skip ci]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
