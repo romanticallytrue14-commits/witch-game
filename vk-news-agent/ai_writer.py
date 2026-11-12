@@ -158,7 +158,9 @@ class GigaChatClient:
         self.raw_key = auth_key
         self.auth_key = normalize_gigachat_auth_key(auth_key)
         self.scope = os.getenv("GIGACHAT_SCOPE") or str(cfg.get("scope", "GIGACHAT_API_PERS"))
-        self.model = os.getenv("GIGACHAT_MODEL") or str(cfg.get("model", "GigaChat"))
+        self.model = os.getenv("GIGACHAT_MODEL") or str(cfg.get("model", "GigaChat-2"))
+        self.image_model = os.getenv("GIGACHAT_IMAGE_MODEL") or str(cfg.get("image_model", "GigaChat"))
+        self._active_text_model: str = ""
         self.oauth_url = os.getenv("GIGACHAT_OAUTH_URL") or str(
             cfg.get("oauth_url", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth")
         )
@@ -253,39 +255,48 @@ class GigaChatClient:
 
     def generate(self, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> str:
         token = self._get_access_token()
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
         }
-        body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        model_candidates = (
+            [self._active_text_model]
+            if self._active_text_model
+            else list(dict.fromkeys([self.model, "GigaChat-2", "GigaChat"]))
+        )
         last_err: Exception | None = None
         data: dict[str, Any] = {}
-        for chat_url in self.chat_urls:
-            try:
-                data = _http_post_json(
-                    chat_url,
-                    headers,
-                    body_bytes,
-                    ssl_ctx=self.ssl_ctx,
-                    timeout=55,
-                    retries=2,
-                )
-                last_err = None
+        for mdl in model_candidates:
+            payload = {
+                "model": mdl,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            for chat_url in self.chat_urls:
+                try:
+                    data = _http_post_json(
+                        chat_url,
+                        headers,
+                        body_bytes,
+                        ssl_ctx=self.ssl_ctx,
+                        timeout=55,
+                        retries=2,
+                    )
+                    self._active_text_model = mdl
+                    last_err = None
+                    break
+                except AIProviderError as exc:
+                    last_err = exc
+                    continue
+            if last_err is None:
                 break
-            except AIProviderError as exc:
-                last_err = exc
-                continue
         if last_err is not None:
             raise last_err
         choices = data.get("choices") or []
@@ -391,7 +402,7 @@ class GigaChatClient:
         last_err: Exception | None = None
         for user_msg in prompts_to_try:
             payload = {
-                "model": self.model,
+                "model": self.image_model,
                 "messages": [
                     {"role": "system", "content": sys_msg},
                     {"role": "user", "content": user_msg},
@@ -896,9 +907,9 @@ def clean_markdown_for_vk(raw_text: str) -> str:
     text = re.sub(r"(?m)^-\s+", "• ", text)
     text = re.sub(r"(?m)^[✅✔☑️]\s*", "• ", text)
     text = text.replace("**", "").replace("__", "")
-    # Чистим случайно склеенные/неуместные эмодзи от LLM (например, обезьяну 🦧 или рассыпавшийся «👨⚕️»)
-    text = re.sub(r"[🦧🦍🐒🧟🧞🧜🧚]+", "", text)
-    text = text.replace("👨⚕️", "").replace("👩⚕️", "")
+    # Чистим случайно склеенные/неуместные эмодзи от LLM (например, обезьяну 🦧, попугая 🦜 или рассыпавшийся «👨⚕️»)
+    text = re.sub(r"[🦜🦧🦍🐒🧟🧞🧜🧚]+", "", text)
+    text = re.sub(r"[👨👩]\u200d?⚕\ufe0f?", "", text)
     text = humanize_technical_jargon(text, aggressive_source_mode=False)
     # Аккуратная чистка задвоенных пробелов и случайной двойной пунктуации ("..", ",,")
     text = re.sub(r"[ \t]{2,}", " ", text)

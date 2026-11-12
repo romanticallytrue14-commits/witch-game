@@ -233,6 +233,7 @@ def rewrite_existing_wall_posts(
                     "photo_attached": res["photo_attached"],
                     "yaroslavl_image_regenerated": new_img is not None and yaroslavl_post,
                     "image_source": new_img.source_url if new_img is not None else "kept_existing",
+                    "ai_model": getattr(ai_client, "_active_text_model", "") or getattr(ai_client, "name", ""),
                     "preview": new_text[:200],
                 }
             )
@@ -321,6 +322,7 @@ def apply_group_branding(
     rewrite_wall: bool = False,
     save_verify_json: Path | None = None,
     only_post_ids: set[int] | None = None,
+    keep_all_photos: bool = False,
 ) -> int:
     config = load_config(config_path)
     group_cfg = config.get("group", {})
@@ -503,6 +505,7 @@ def apply_group_branding(
             published_state_path,
             wall_items,
             pinned_post_id=int(b_state.get("pinned_post_id") or 0),
+            regenerate_local_images=not keep_all_photos,
             preview_save_dir=save_verify_json.parent if save_verify_json is not None else None,
             only_post_ids=only_post_ids,
         )
@@ -563,6 +566,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-backfill", action="store_true")
     p.add_argument("--rewrite-wall", action="store_true", help="Переписать существующие посты стены под новый бренд")
     p.add_argument("--only-post-ids", default="", help="Список ID постов через запятую (например, 187,188)")
+    p.add_argument("--keep-all-photos", action="store_true", help="Сохранить текущие фото у всех постов без перегенерации")
     p.add_argument("--save-verify-json", default=None)
     return p
 
@@ -583,6 +587,7 @@ def main(argv: list[str] | None = None) -> int:
         rewrite_wall=args.rewrite_wall,
         save_verify_json=Path(args.save_verify_json) if args.save_verify_json else None,
         only_post_ids=only_ids,
+        keep_all_photos=args.keep_all_photos,
     )
 
 
