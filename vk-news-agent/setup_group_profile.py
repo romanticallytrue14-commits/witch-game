@@ -22,7 +22,7 @@ from agent import (  # noqa: E402
     load_fallback_editorial_card,
     prepare_ai_image_for_post,
 )
-from ai_writer import create_ai_client, rewrite_existing_post_text  # noqa: E402
+from ai_writer import create_ai_client, is_yaroslavl_topic, rewrite_existing_post_text  # noqa: E402
 from dedup_store import make_post_guid  # noqa: E402
 from news_fetcher import NewsCandidate, enrich_candidate_from_webpage  # noqa: E402
 from vk_publisher import (  # noqa: E402
@@ -108,8 +108,9 @@ def rewrite_existing_wall_posts(
     wall_items: list[dict[str, Any]],
     *,
     pinned_post_id: int = 0,
+    regenerate_local_images: bool = True,
 ) -> list[dict[str, Any]]:
-    """Переписывает уже выпущенные посты на стене в фирменном стиле нового бренда с вычиткой ИИ."""
+    """Переписывает уже выпущенные посты простым живым языком и обновляет иллюстрации Ярославля."""
     if not wall_items:
         return []
 
@@ -149,7 +150,25 @@ def rewrite_existing_wall_posts(
             else:
                 cat = "news"
         url = str(meta.get("url") or "")
-        title_hint = str(meta.get("title") or existing_text.splitlines()[0][:100])
+        orig_title = str(meta.get("title") or "").strip()
+        title_hint = orig_title or existing_text.splitlines()[0][:100]
+
+        # Подтягиваем первоисточник статьи, чтобы переписать пост по чистым фактам без старых искажений
+        source_facts = ""
+        if url.startswith(("http://", "https://")) and "news.google.com" not in url:
+            try:
+                cand = NewsCandidate(
+                    title=title_hint,
+                    url=url,
+                    source_name="source",
+                    category=cat,
+                    summary="",
+                )
+                cand = enrich_candidate_from_webpage(cand, timeout=12)
+                if len(cand.best_text) >= 120:
+                    source_facts = cand.best_text
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Не удалось подгрузить первоисточник для поста #%d: %s", pid, exc)
 
         new_text = rewrite_existing_post_text(
             ai_client,
@@ -157,27 +176,43 @@ def rewrite_existing_wall_posts(
             config,
             category=cat,
             source_url=url,
+            source_facts=source_facts,
+            original_title=orig_title,
         )
 
         existing_att = extract_existing_photo_attachment(w_item)
+        yaroslavl_post = is_yaroslavl_topic(title_hint, new_text, cat)
         new_img: PreparedImage | None = None
-        if not existing_att:
+
+        if not existing_att or (regenerate_local_images and yaroslavl_post):
             new_img = prepare_ai_image_for_post(
                 ai_client,
                 title=title_hint,
                 post_text=new_text,
                 category=cat,
                 config=config,
-            ) or load_fallback_editorial_card(config, cat)
+            )
+            if new_img is None and not existing_att:
+                new_img = load_fallback_editorial_card(config, cat)
 
         try:
-            res = pub.edit_wall_post(pid, new_text, image=new_img, keep_attachments=existing_att)
-            logger.info("Пост #%d успешно переписан в стиле «Греем Мотор»!", pid)
+            if new_img is not None:
+                res = pub.edit_wall_post(pid, new_text, image=new_img)
+            else:
+                res = pub.edit_wall_post(pid, new_text, keep_attachments=existing_att)
+            logger.info(
+                "Пост #%d успешно переписан простым языком (Ярославль=%s, новое фото=%s)!",
+                pid,
+                yaroslavl_post,
+                new_img is not None,
+            )
             rewritten_reports.append(
                 {
                     "post_id": pid,
                     "post_url": res["post_url"],
                     "photo_attached": res["photo_attached"],
+                    "yaroslavl_image_regenerated": new_img is not None and yaroslavl_post,
+                    "image_source": new_img.source_url if new_img is not None else "kept_existing",
                     "preview": new_text[:200],
                 }
             )
@@ -475,6 +510,7 @@ def apply_group_branding(
                 "has_photo": g0.get("has_photo"),
             },
             "rewritten_count": len(rewritten_list),
+            "rewritten_reports": rewritten_list,
             "wall": [
                 {
                     "id": w.get("id"),

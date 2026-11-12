@@ -205,6 +205,54 @@ class AIWriterAndFormattingTests(unittest.TestCase):
         self.assertNotIn("autoyar076", final_text)
         self.assertIn("#автоярославль", final_text)
 
+        # Проверка снятия КАПСЛОКА в заголовке и удаления лишних подзаголовков
+        caps_post = ai_writer.clean_markdown_for_vk(
+            "🚗 ЧАЙКА СПАСЛА ОТ ШТРАФА ПДД В ЯРОСЛАВЛЕ!\n\n"
+            "Птица закрыла номер машины крылом.\n\n"
+            "🤔 Вопрос опытным водителям:\n"
+            "А вам везло на дороге?"
+        )
+        self.assertIn("🚗 Чайка спасла от штрафа ПДД в Ярославле!", caps_post)
+        self.assertNotIn("ЧАЙКА СПАСЛА", caps_post)
+        self.assertNotIn("Вопрос опытным водителям", caps_post)
+
+    def test_yaroslavl_image_prompt_detection(self) -> None:
+        tpl = ai_writer.TemplateFallbackClient()
+        # 1. Ярославская новость -> в промпте картинки обязательно Ярославль, Волга и купола
+        yar_post = (
+            "🚗 В Ярославле на Московском проспекте обновили разметку\n\n"
+            "Движение стало удобнее.\n\n"
+            "📰 По материалам: 76.ру\n"
+            "#грееммотор #автоярославль #авто76"
+        )
+        self.assertTrue(ai_writer.is_yaroslavl_topic("Ремонт в Ярославле", yar_post, "local_76"))
+        yar_prompt = ai_writer.build_ai_image_prompt(
+            tpl,
+            title="Ремонт в Ярославле",
+            post_text=yar_post,
+            category="local_76",
+        )
+        self.assertIn("Ярославл", yar_prompt)
+        self.assertIn("Волг", yar_prompt)
+
+        # 2. Общероссийская новость (даже с #автоярославль в подвале и вопросом в конце) -> НЕ считается городской новостью Ярославля
+        fed_post = (
+            "⛽ Проверка бензина на трассах страны\n\n"
+            "Крупные сети прошли проверку спокойно.\n\n"
+            "А на каких заправках в Ярославле заправляетесь вы?\n\n"
+            "📰 По материалам: Motor.ru\n"
+            "🔥 Греем Мотор — подписывайтесь: vk.ru/greem_motor\n"
+            "#грееммотор #автоярославль #авто76"
+        )
+        self.assertFalse(ai_writer.is_yaroslavl_topic("Проверка бензина на АЗС", fed_post, "news"))
+        fed_prompt = ai_writer.build_ai_image_prompt(
+            tpl,
+            title="Проверка бензина на АЗС",
+            post_text=fed_post,
+            category="news",
+        )
+        self.assertNotIn("Ярославл", fed_prompt)
+
     def test_gigachat_header_normalization_and_uuid_warning(self) -> None:
         expected_b64 = base64.b64encode(b"cid:csec").decode("ascii")
         self.assertEqual(
