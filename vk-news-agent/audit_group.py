@@ -218,16 +218,74 @@ def _visible_text(html: str, limit: int = 900) -> str:
     return body[:limit]
 
 
-def scrape_wall(screen: str, notes: list[str], group_id: int | None = None) -> list[dict[str, Any]]:
+RU_MONTHS = {
+    "янв": 1, "фев": 2, "мар": 3, "апр": 4, "мая": 5, "май": 5, "июн": 6,
+    "июл": 7, "авг": 8, "сен": 9, "окт": 10, "ноя": 11, "дек": 12,
+}
+
+
+def _scan_dates(html: str) -> list[tuple[int, str]]:
+    """Собирает правдоподобные даты всех известных форматов VK (с контекстом)."""
+    found: list[tuple[int, str]] = []
+
+    def add(ts: int, m: re.Match) -> None:
+        if not (1577836800 <= ts <= 1893456000):  # 2020-01-01 … 2030-01-01
+            return
+        ctx = re.sub(r"\s+", " ", html[max(0, m.start() - 90) : m.end() + 90])
+        ctx = re.sub(r"<[^>]+>", " ", ctx)
+        found.append((ts, ctx.strip()[:180]))
+
+    for m in re.finditer(r"\b(1[6-9]\d{11})\b", html):  # unix в миллисекундах
+        add(int(m.group(1)) // 1000, m)
+    for m in re.finditer(r"\b(1[6-9]\d{9})\b", html):  # unix в секундах
+        add(int(m.group(1)), m)
+    for m in re.finditer(r'"date"\s*:\s*"?(20\d{2}-\d{2}-\d{2}[^"]{0,30})', html):  # ISO
+        try:
+            add(int(dt.datetime.fromisoformat(m.group(1).replace("Z", "+00:00")).timestamp()), m)
+        except ValueError:
+            pass
+    for m in re.finditer(  # «17 окт 2026 в 20:54» / «5 ноября 2026»
+        r"\b(\d{1,2})\s+(янв|фев|мар|апр|мая|май|июн|июл|авг|сен|окт|ноя|дек)[а-яё]*\s+(20\d{2})"
+        r"(?:\s*в\s*(\d{1,2}):(\d{2}))?",
+        html,
+        re.I,
+    ):
+        try:
+            month = RU_MONTHS[m.group(2).lower()[:3]]
+            hour = int(m.group(4) or 0)
+            minute = int(m.group(5) or 0)
+            ts = int(
+                dt.datetime(int(m.group(3)), month, int(m.group(1)), hour, minute, tzinfo=MSK).timestamp()
+            )
+            add(ts, m)
+        except (ValueError, KeyError):
+            pass
+
+    uniq: list[tuple[int, str]] = []
+    seen: set[int] = set()
+    for ts, ctx in sorted(found, key=lambda x: -x[0]):
+        if ts in seen:
+            continue
+        seen.add(ts)
+        uniq.append((ts, ctx))
+    return uniq
+
+
+def scrape_wall(
+    screen: str,
+    notes: list[str],
+    group_id: int | None = None,
+    debug: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """Best-effort попытка достать записи со страницы сообщества без API.
 
-    Помимо самих записей наполняет `notes` диагностикой: что именно вернула
-    страница (заголовок, маркеры разметки, найденные даты) — чтобы понять,
-    реальная ли это стена страницы или заглушка/капча.
+    Помимо самих записей наполняет `notes` диагностикой (что вернула страница),
+    а `debug` — подробной выгрузкой разметки для разбора вручную.
     """
+    dbg = debug if debug is not None else []
     urls = [f"https://m.vk.com/{screen}", f"https://vk.com/{screen}", f"https://vk.com/{screen}?own=1"]
     if group_id:
-        urls.append(f"https://vk.com/wall-{group_id}")
+        urls += [f"https://vk.com/wall-{group_id}", f"https://vk.com/wall-{group_id}?print=1"]
 
     posts: list[dict[str, Any]] = []
     for url in urls:
@@ -242,27 +300,42 @@ def scrape_wall(screen: str, notes: list[str], group_id: int | None = None) -> l
         marker_str = ", ".join(f"{k}={v}" for k, v in markers.items() if v)
         notes.append(f"{url}: {len(html)} байт, title={title_txt!r}; маркеры: {marker_str or 'нет'}")
 
-        # Все правдоподобные даты (unix10 цифр, 2020–2030) с контекстом.
-        dated: list[tuple[int, str]] = []
-        for m in re.finditer(r"\b(1[6-9]\d{9})\b", html):
-            ts = int(m.group(1))
-            if not (1577836800 <= ts <= 1893456000):  # 2020-01-01 … 2030-01-01
-                continue
-            ctx = re.sub(r"\s+", " ", html[max(0, m.start() - 90) : m.end() + 90])
-            ctx = re.sub(r"<[^>]+>", " ", ctx)
-            dated.append((ts, ctx.strip()[:180]))
-        seen_ts: set[int] = set()
-        uniq: list[tuple[int, str]] = []
-        for ts, ctx in sorted(dated, key=lambda x: -x[0]):
-            if ts in seen_ts:
-                continue
-            seen_ts.add(ts)
-            uniq.append((ts, ctx))
+        # Все правдоподобные даты (unix c/c мс, ISO, русские) с контекстом.
+        uniq = _scan_dates(html)
         if uniq:
             notes.append(
                 "кандидаты дат на странице: "
                 + "; ".join(f"{fmt_ts(ts)} «{ctx}»" for ts, ctx in uniq[:8])
             )
+
+        dbg.append(f"\n===== {url} ({len(html)} байт) =====")
+        dbg.append(f"title: {title_txt}")
+        dbg.append(f"маркеры: {marker_str or 'нет'}")
+        dbg.append(
+            "window-переменные: "
+            + ", ".join(sorted(set(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=", html)))[:60])
+        )
+        if uniq:
+            dbg.append("даты-кандидаты:")
+            for ts, ctx in uniq[:20]:
+                dbg.append(f"  {fmt_ts(ts)} :: {ctx}")
+        # Сырой контекст разметки записей — чтобы видеть реальную структуру.
+        idx = html.find("wall_post")
+        if idx < 0:
+            idx = html.find("PostContent") if "PostContent" in html else html.find("post_item")
+        if idx >= 0:
+            dbg.append("--- RAW вокруг wall_post ---")
+            dbg.append(html[max(0, idx - 300) : idx + 2500])
+        # Первый экран видимого текста (длинный) — даты часто лежат текстом.
+        dbg.append("--- видимый текст (3500 симв.) ---")
+        dbg.append(_visible_text(html, limit=3500))
+        # Скрипты, похожие на данные записей.
+        for sm in re.finditer(r"<script[^>]*>(.*?)</script>", html, re.S | re.I):
+            body = sm.group(1)
+            if '"text"' in body and ('"date"' in body or '"posts"' in body):
+                dbg.append("--- script с данными записей (первые 3000 симв.) ---")
+                dbg.append(body[:3000])
+                break
 
         # 1) Иногда VK встраивает состояние страницы в JSON.
         m = re.search(r"__PRELOADED_STATE__\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
@@ -521,8 +594,10 @@ def build_report(screen: str, group: dict[str, Any] | None, posts: list[dict[str
     return "\n".join(lines) + "\n"
 
 
-def audit_one(screen: str, tokens: list[str | None], count: int) -> str:
+def audit_one(screen: str, tokens: list[str | None], count: int) -> tuple[str, str]:
+    """Возвращает (отчёт в Markdown, debug-выгрузка разметки)."""
     notes: list[str] = []
+    debug: list[str] = []
     group = get_group_info(screen, tokens, notes)
     posts = get_wall(screen, count, tokens, notes)
     if posts is None:
@@ -530,12 +605,12 @@ def audit_one(screen: str, tokens: list[str | None], count: int) -> str:
         if group:
             raw_gid = group.get("id") or group.get("group_id")
             gid = int(raw_gid) if raw_gid else None
-        posts = scrape_wall(screen, notes, group_id=gid)
+        posts = scrape_wall(screen, notes, group_id=gid, debug=debug)
         if posts:
             notes.append("API недоступен/закрыт — использован запасной способ чтения стены")
         else:
             notes.append("ни API, ни страница сообщества не вернули записей")
-    return build_report(screen, group, posts or [], notes)
+    return build_report(screen, group, posts or [], notes), "\n".join(debug) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -568,9 +643,10 @@ def main(argv: list[str] | None = None) -> int:
         safe = re.sub(r"[^A-Za-z0-9_-]", "", screen) or "group"
         _log(f"аудит {screen} ...")
         try:
-            report = audit_one(screen, tokens, args.count)
+            report, debug = audit_one(screen, tokens, args.count)
         except Exception as exc:  # noqa: BLE001 — диагностика не должна падать
             report = f"# Аудит vk.ru/{screen}\n\nОшибка: {exc}\n"
+            debug = ""
             exit_code = 1
         print(report)
         if not args.no_file:
@@ -579,6 +655,11 @@ def main(argv: list[str] | None = None) -> int:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(report)
             _log(f"отчёт сохранён: {path}")
+            if debug:
+                dbg_path = os.path.join(args.out_dir, f"{safe}.debug.txt")
+                with open(dbg_path, "w", encoding="utf-8") as fh:
+                    fh.write(debug)
+                _log(f"debug сохранён: {dbg_path}")
     return exit_code
 
 
