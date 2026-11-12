@@ -1,6 +1,6 @@
 # Аудит сообщества vk.ru/neurohack_vk
 
-_Сформировано: 2026-11-12 17:45 MSK_
+_Сформировано: 2026-11-12 17:51 MSK_
 
 ## Сообщество
 
@@ -12,15 +12,22 @@ _Сформировано: 2026-11-12 17:45 MSK_
 
 ## Стена: последние записи
 
-_Записей получить не удалось или стена пуста._
+| # | Дата | Кто публиковал | Запись |
+|---|------|----------------|--------|
+| 1 | 2026-10-17 20:54 MSK | ? |  |
 
 ## Статистика публикаций
 
-_Нет данных о датах записей._
+- Всего записей в выборке: **1** (с 2026-10-17 20:54 MSK)
+- Публикации через API («робот»): **0**
+- Ручные/прочие публикации: **1**
+- Последняя запись вообще: **2026-10-17 20:54 MSK**
+- Публикаций через API в выборке **нет** — на стене только ручные записи.
 
 ## Выводы
 
-- ❗ Записи на стене получить не удалось — диагностика робота невозможна по ним.
+- ❗ В выборке нет ни одной публикации через API: либо робот никогда не публиковал на эту стену (смотрите не ту группу / публикации уходят в другое место), либо его записи были удалены с стены.
+- ⚠️ Последняя запись на стене в целом старше 3 суток (2026-10-17 20:54 MSK) — стена не обновлялась независимо от робота.
 
 ## Замечания и ошибки
 
@@ -28,23 +35,13 @@ _Нет данных о датах записей._
 - wall.get: ошибка VK 5 — User authorization failed: invalid access_token (4).
 - wall.get: ошибка VK 27 — Group authorization failed: method is unavailable with group auth.
 - wall.get: ошибка VK 15 — Access denied: token required
-- https://m.vk.com/neurohack_vk: 113770 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=5, Post component=10, publish_date=2, captcha/security=1, window.__=33
-- кандидаты дат на странице: 2026-11-12 17:45 MSK «"https:\/\/m.vk.com\/special.php"],"statsMeta":{"platform":"mvk","st":false,"id":0,"time":1794494742,"hash":"Smb91AaAoEbkrmmny5ily9bRXE1GlFA8IpUZJmnIGUL","anonymId":"90545980943697»
+- https://m.vk.com/neurohack_vk: 121021 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=5, Post component=10, publish_date=2, captcha/security=1, window.__=33
+- кандидаты дат на странице: 2026-11-12 17:51 MSK «"https:\/\/m.vk.com\/special.php"],"statsMeta":{"platform":"mvk","st":false,"id":0,"time":1794495084,"hash":"DmC7D6FFYqMSzuJcJv7iMf9qhTfWChmRZpfEeuRBxRD","anonymId":"91117375149843»
 - https://m.vk.com/neurohack_vk: первые символы текста — «ВКонтакте | ВКонтакте Ваш браузер устарел Из-за этого ВКонтакте может работать медленно и нестабильно. Обновите свой браузер или установите один из рекомендуемых: Opera Firefox &nbsp;»
-- https://vk.com/neurohack_vk: 202682 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=8, Post component=8, publish_date=2, captcha/security=24, window.__=31
-- кандидаты дат на странице: 2026-11-12 17:45 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794494744,"hash":"vvt5zdM3eYZ9SwBKCTi8VhDUP5kQqjM9fDVDpKkFsrL","anonymId":"9098367453249654680"»; 2026-11-12 17:45 MSK «'https', ip_h: '71b7d15632fcaf1243', navPrefix: '/', dt: parseInt('0') || 0, ts: 1794494743, tz: 10800, vcost: 7, pabs: 784, time: [2026, 11, 12, 17, 45, 43], sampleUser:»; 2026-10-17 20:54 MSK «se},"photo_avg_color":"#000000","has_photo":1,"crop_photo":{"photo":{"album_id":-6,"date":1792259647,"id":457239017,"owner_id":-242379894,"thumb_hash":"RvcFFwAHiHiJdnhwemiXiIiIh234»
+- https://vk.com/neurohack_vk: 202681 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=8, Post component=8, publish_date=2, captcha/security=24, window.__=31
+- кандидаты дат на странице: 2026-11-12 17:51 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794495086,"hash":"eIz5Yu83823OgBmfBZY4FeKaA7q9IzCNsvI3KHVoH3L","anonymId":"9064590456386347245"»; 2026-10-17 20:54 MSK «se},"photo_avg_color":"#000000","has_photo":1,"crop_photo":{"photo":{"album_id":-6,"date":1792259647,"id":457239017,"owner_id":-242379894,"thumb_hash":"RvcFFwAHiHiJdnhwemiXiIiIh234»
+- записи найдены во встроенном JSON страницы https://vk.com/neurohack_vk: 1 шт.
 - https://vk.com/neurohack_vk: первые символы текста — «ВКонтакте | ВКонтакте &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204;»
-- https://vk.com/neurohack_vk?own=1: 202696 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=8, Post component=8, publish_date=2, captcha/security=24, window.__=31
-- кандидаты дат на странице: 2026-11-12 17:45 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794494745,"hash":"NXdT32aGa2uB5dwsZyeHzVJxny2I9ETjyrVdTpZ0QwL","anonymId":"9111737514644854514"»; 2026-10-17 20:54 MSK «se},"photo_avg_color":"#000000","has_photo":1,"crop_photo":{"photo":{"album_id":-6,"date":1792259647,"id":457239017,"owner_id":-242379894,"thumb_hash":"RvcFFwAHiHiJdnhwemiXiIiIh234»
-- https://vk.com/neurohack_vk?own=1: первые символы текста — «ВКонтакте | ВКонтакте &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204;»
-- https://m.vk.com/wall-242379894: 121030 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=5, Post component=10, publish_date=2, captcha/security=1, window.__=33
-- кандидаты дат на странице: 2026-11-12 17:45 MSK «"https:\/\/m.vk.com\/special.php"],"statsMeta":{"platform":"mvk","st":false,"id":0,"time":1794494746,"hash":"Uvc6SERYZnGP3kj5VZvL1lAPvAT9CmxmYtW5whdJl4T","anonymId":"91151152143670»
-- https://m.vk.com/wall-242379894: первые символы текста — «ВКонтакте | ВКонтакте Ваш браузер устарел Из-за этого ВКонтакте может работать медленно и нестабильно. Обновите свой браузер или установите один из рекомендуемых: Opera Firefox &nbsp;»
-- https://vk.com/wall-242379894: 624329 байт, title='НЕЙРОХАК | Нейросети и технологии: записи сообщества | ВКонтакте'; маркеры: wall_post=106, Post component=446, publish_date=2, replies=38, captcha/security=47, window.__=32
-- кандидаты дат на странице: 2026-11-12 18:45 MSK «зьям","wall_post_access_all":"Видно всем","profile_wall_postpone_btn":"В очередь"},"date":1794498348,"postpone_item_hidden":false}]],"share":{"url":"https:\/\/pu.vk.com\/c534632\/s»; 2026-11-12 17:45 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794494749,"hash":"coOYdYoDsnhTL5NzIyE28z6srXn56wTRJb66TuvNAd8","anonymId":"9096819340882161526"»; 2026-11-10 14:44 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794311059,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-10 09:53 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794293627,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-09 19:56 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794243402,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-09 14:48 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794224893,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-09 10:11 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794208300,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-08 19:29 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794155366,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»
-- https://vk.com/wall-242379894: первые символы текста — «НЕЙРОХАК | Нейросети и технологии: записи сообщества | ВКонтакте &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; НЕЙРОХАК | Нейросети и технологии вернуться к странице Посты сообщества Все посты Все посты 19 НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий..»
-- https://vk.com/wall-242379894?print=1: 625221 байт, title='НЕЙРОХАК | Нейросети и технологии: записи сообщества | ВКонтакте'; маркеры: wall_post=106, Post component=446, publish_date=2, replies=38, captcha/security=47, window.__=32
-- кандидаты дат на странице: 2026-11-12 18:45 MSK «зьям","wall_post_access_all":"Видно всем","profile_wall_postpone_btn":"В очередь"},"date":1794498351,"postpone_item_hidden":false}]],"share":{"url":"https:\/\/pu.vk.com\/c903729\/s»; 2026-11-12 17:45 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794494752,"hash":"7chyZ7HFrY4J0Ymwy3LSmi3awGJmFtOeLqs7ZuZcqv8","anonymId":"9100056303117500146"»; 2026-11-10 14:44 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794311059,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-10 09:53 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794293627,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-09 19:56 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794243402,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-09 14:48 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794224893,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-09 10:11 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794208300,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»; 2026-11-08 19:29 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794155366,&quot;from_id&quot;:-242379894,&quot;header&quot;:{&quot;photo&quot;:{&quot;sou»
-- https://vk.com/wall-242379894?print=1: первые символы текста — «НЕЙРОХАК | Нейросети и технологии: записи сообщества | ВКонтакте &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; НЕЙРОХАК | Нейросети и технологии вернуться к странице Посты сообщества Все посты Все посты 19 НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий... НЕЙРОХАК | Нейросети и технологии Оценили 0 человек Показать список поделившихся Написать комментарий..»
-- ни API, ни страница сообщества не вернули записей
+- записи получены скрапингом https://vk.com/neurohack_vk (не через API)
+- API недоступен/закрыт — использован запасной способ чтения стены
 
