@@ -87,7 +87,7 @@ jobs:
             python3 vk-news-agent/setup_group_profile.py --skip-info --skip-cover --skip-avatar --skip-pinned --skip-backfill --rewrite-wall --save-verify-json vk-news-agent/state/_plain_verify.json
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add vk-news-agent/state/_plain_verify.json
+            git add vk-news-agent/state/_plain_verify.json vk-news-agent/state/_yaroslavl_preview_*.jpg || true
             git commit -m "chore(vk): verify plain-language wall rewrite & Yaroslavl image [skip ci]" || true
             git push origin HEAD:arena/18a9cae3-witch-game || true
             exit 0

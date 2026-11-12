@@ -109,6 +109,7 @@ def rewrite_existing_wall_posts(
     *,
     pinned_post_id: int = 0,
     regenerate_local_images: bool = True,
+    preview_save_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Переписывает уже выпущенные посты простым живым языком и обновляет иллюстрации Ярославля."""
     if not wall_items:
@@ -170,6 +171,7 @@ def rewrite_existing_wall_posts(
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Не удалось подгрузить первоисточник для поста #%d: %s", pid, exc)
 
+        was_yaroslavl = cat == "local_76" or is_yaroslavl_topic(title_hint, existing_text, cat)
         new_text = rewrite_existing_post_text(
             ai_client,
             existing_text,
@@ -178,10 +180,11 @@ def rewrite_existing_wall_posts(
             source_url=url,
             source_facts=source_facts,
             original_title=orig_title,
+            is_local_yaroslavl=was_yaroslavl,
         )
 
         existing_att = extract_existing_photo_attachment(w_item)
-        yaroslavl_post = is_yaroslavl_topic(title_hint, new_text, cat)
+        yaroslavl_post = was_yaroslavl or is_yaroslavl_topic(title_hint, new_text, cat)
         new_img: PreparedImage | None = None
 
         if not existing_att or (regenerate_local_images and yaroslavl_post):
@@ -194,6 +197,9 @@ def rewrite_existing_wall_posts(
             )
             if new_img is None and not existing_att:
                 new_img = load_fallback_editorial_card(config, cat)
+            if new_img is not None and yaroslavl_post and preview_save_dir is not None:
+                preview_save_dir.mkdir(parents=True, exist_ok=True)
+                (preview_save_dir / f"_yaroslavl_preview_{pid}.jpg").write_bytes(new_img.data)
 
         try:
             if new_img is not None:
@@ -482,6 +488,7 @@ def apply_group_branding(
             published_state_path,
             wall_items,
             pinned_post_id=int(b_state.get("pinned_post_id") or 0),
+            preview_save_dir=save_verify_json.parent if save_verify_json is not None else None,
         )
         if rewritten_list:
             report_lines.append(f"- ✅ **Переписаны выпущенные посты в стиле «{title}»**: `{len(rewritten_list)}` шт.")

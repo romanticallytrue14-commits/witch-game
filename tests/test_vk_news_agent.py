@@ -216,6 +216,16 @@ class AIWriterAndFormattingTests(unittest.TestCase):
         self.assertNotIn("ЧАЙКА СПАСЛА", caps_post)
         self.assertNotIn("Вопрос опытным водителям", caps_post)
 
+        # Проверка перевода лабораторного жаргона в человеческий язык
+        jargon_src = "Проверили АИ-95-К5 в МИЦ ГСМ: 169 мг/кг серы, класс К2 и сбой ВНС."
+        humanized = ai_writer.humanize_technical_jargon(jargon_src, aggressive_source_mode=True)
+        self.assertIn("АИ-95", humanized)
+        self.assertNotIn("АИ-95-К5", humanized)
+        self.assertNotIn("мг/кг", humanized)
+        self.assertNotIn("МИЦ ГСМ", humanized)
+        self.assertNotIn("К2", humanized)
+        self.assertNotIn("ВНС", humanized)
+
     def test_yaroslavl_image_prompt_detection(self) -> None:
         tpl = ai_writer.TemplateFallbackClient()
         # 1. Ярославская новость -> в промпте картинки обязательно Ярославль, Волга и купола

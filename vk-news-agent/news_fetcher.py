@@ -586,6 +586,9 @@ def enrich_candidate_from_webpage(item: NewsCandidate, timeout: int = 12) -> New
             if sum(len(x) for x in paragraphs) >= 2400:
                 break
 
+        if meta_desc and (not paragraphs or meta_desc[:60].lower() not in paragraphs[0].lower()):
+            paragraphs.insert(0, meta_desc)
+
         assembled = "\n\n".join(paragraphs).strip()
         if len(assembled) > len(item.full_text):
             item.full_text = assembled
