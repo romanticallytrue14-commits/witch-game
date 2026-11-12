@@ -346,16 +346,22 @@ def extract_embedded_posts(html: str, now_ts: int | None = None) -> list[dict[st
             continue
         if not isinstance(obj, dict):
             continue
-        if not any(k in obj for k in ("text", "post_source", "header")):
-            continue  # не запись стены (например, черновик/настройки)
+        # Строгий фильтр: только похожие на запись стены объекты
+        # (у записи есть from_id/post_source; у фото группы — нет).
+        if not ("from_id" in obj or "post_source" in obj):
+            continue
+        if "postpone_item_hidden" in obj:
+            continue  # черновик композера, а не опубликованная запись
         pid = obj.get("id")
         if (ts, pid) in seen:
             continue
         seen.add((ts, pid))
+        text = re.sub(r"<[^>]+>", " ", obj.get("text") or "")
+        text = re.sub(r"\s+", " ", text).strip()
         posts.append(
             {
                 "date": obj.get("date", ts),
-                "text": obj.get("text") or "",
+                "text": text,
                 "post_source": obj.get("post_source") or {},
                 "id": pid,
                 "from_id": obj.get("from_id"),
