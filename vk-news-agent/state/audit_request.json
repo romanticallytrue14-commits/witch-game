@@ -3,6 +3,6 @@
   "count": 50,
   "reason": "Диагностика: почему робот перестал публиковать посты в vk.ru/neurohack_vk (сравнение с рабочей группой greem_motor)",
   "requested_at": "2026-11-12",
-  "attempt": 2,
-  "attempt_note": "улучшенный скрапинг: диагностика страницы, больше URL и контекст дат"
+  "attempt": 3,
+  "attempt_note": "кодировка windows-1251 + точный парсер wall_post (publish_date, без JS-мусора)"
 }
