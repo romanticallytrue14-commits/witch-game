@@ -1,72 +1,18 @@
 {
-  "pub_user_token_len": 220,
-  "pub_user_token_starts_vk1": true,
-  "user_users.get": {
+  "market_album_photo": {
     "ok": false,
-    "code": 9,
-    "msg": "Flood control"
+    "error": "VK API error 27 в методе photos.getMarketAlbumUploadServer: Group authorization failed: method is unavailable with group auth."
   },
-  "user_wall.get": {
+  "market_photo": {
     "ok": false,
-    "code": 9,
-    "msg": "Flood control"
+    "error": "VK API error 27 в методе photos.getMarketUploadServer: Group authorization failed: method is unavailable with group auth."
   },
-  "user_photos.getWallUploadServer": {
+  "photos.getAlbums": {
     "ok": false,
-    "code": 9,
-    "msg": "Flood control"
+    "error": "VK API error 27 в методе photos.getAlbums: Group authorization failed: method is unavailable with group auth."
   },
-  "wall_before": [
-    {
-      "id": 191,
-      "attachments": [],
-      "text_len": 1155
-    },
-    {
-      "id": 190,
-      "attachments": [],
-      "text_len": 1417
-    },
-    {
-      "id": 188,
-      "attachments": [],
-      "text_len": 1683
-    },
-    {
-      "id": 187,
-      "attachments": [],
-      "text_len": 744
-    },
-    {
-      "id": 186,
-      "attachments": [],
-      "text_len": 1400
-    },
-    {
-      "id": 184,
-      "attachments": [],
-      "text_len": 919
-    },
-    {
-      "id": 177,
-      "attachments": [],
-      "text_len": 1321
-    }
-  ],
-  "uploaded_msg_photo": {
-    "att_with_key": "photo-85500918_457239236_0413689c0acdff2106",
-    "att_plain": "photo-85500918_457239236"
-  },
-  "edit_attempts_with_group_token": [
-    {
-      "variant": "with_access_key",
-      "api_ok": false,
-      "error": "VK API error 27 в методе wall.edit: Group authorization failed: method is unavailable with group auth."
-    },
-    {
-      "variant": "without_access_key",
-      "api_ok": false,
-      "error": "VK API error 27 в методе wall.edit: Group authorization failed: method is unavailable with group auth."
-    }
-  ]
+  "photos.getUploadServer": {
+    "ok": false,
+    "error": "VK API error 27 в методе photos.getUploadServer: Group authorization failed: method is unavailable with group auth."
+  }
 }
