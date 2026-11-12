@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only проверка обхода Error 9 через execute / docs / video и проверка доступных методов (0 постов на стену)."""
+"""Проверка market.getProductPhotoUploadServer + market.saveProductPhoto (VK API v5.199) с ключом сообщества VK_TOKEN!"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import traceback
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ AGENT_DIR = Path(__file__).resolve().parent
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
 
-from vk_publisher import VKPublisher
+from vk_publisher import VKPublisher, encode_multipart_photo
 
 
 def main() -> int:
@@ -22,45 +23,54 @@ def main() -> int:
     vk_tok = (os.getenv("VK_TOKEN") or "").strip()
     group_id = 85500918
     pub = VKPublisher(vk_token=vk_tok, vk_group=str(group_id), vk_user_token=raw_user, fallback_group_id=group_id)
-    u = pub.vk_user_token
+    sample_jpg = (AGENT_DIR / "branding" / "cards" / "news.jpg").read_bytes()
+
+    def _mp(upload_url: str, field: str, fname: str) -> dict[str, Any]:
+        body, ctype = encode_multipart_photo(field, fname, "image/jpeg", sample_jpg)
+        req = urllib.request.Request(upload_url, data=body, headers={"Content-Type": ctype}, method="POST")
+        with urllib.request.urlopen(req, timeout=35, context=pub.ssl_ctx) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
 
     out: dict[str, Any] = {}
 
-    # 1. Пробуем execute с VK_USER_TOKEN!
-    for name, code in [
-        ("exec_getWallUploadServer", f'return API.photos.getWallUploadServer({{"group_id": {group_id}}});'),
-        ("exec_wallGet", f'return API.wall.get({{"owner_id": -{group_id}, "count": 2}});'),
-    ]:
+    # 1. Пробуем market.getProductPhotoUploadServer с VK_TOKEN (бессрочным ключом сообщества!)
+    for tok_label, tok in [("group_token", pub.vk_token), ("user_token", pub.vk_user_token)]:
         try:
-            r = pub.call_api("execute", {"code": code}, token=u)
-            out[name] = {"ok": True, "summary": str(r)[:240]}
+            srv = pub.call_api("market.getProductPhotoUploadServer", {"group_id": group_id}, token=tok)
+            out[f"{tok_label}_getProductPhotoUploadServer"] = {"ok": True, "keys": sorted(srv.keys()) if isinstance(srv, dict) else str(srv)[:160]}
+            upload_url = str(srv.get("upload_url", ""))
+            # В новом API market upload поле обычно называется 'file' или 'photo'
+            up = _mp(upload_url, "file", "post.jpg")
+            out[f"{tok_label}_uploaded_keys"] = sorted(up.keys()) if isinstance(up, dict) else str(up)[:180]
+            saved = pub.call_api(
+                "market.saveProductPhoto",
+                {"upload_response": json.dumps(up, ensure_ascii=False)},
+                token=tok,
+            )
+            out[f"{tok_label}_saveProductPhoto"] = {"ok": True, "saved": saved}
+            break
         except Exception as exc:  # noqa: BLE001
-            out[name] = {"ok": False, "error": str(exc)[:240]}
+            out[f"{tok_label}_market_photo"] = {"ok": False, "error": str(exc)[:300]}
 
-    # 2. Другие методы загрузки с VK_USER_TOKEN (не трогающие стену)
-    for m_name, m_params in [
-        ("docs.getWallUploadServer", {"group_id": group_id}),
-        ("docs.getMessagesUploadServer", {"type": "doc"}),
-        ("photos.getChatUploadServer", {"chat_id": 1}),
-        ("photos.getMarketUploadServer", {"group_id": group_id, "main_photo": 1}),
-        ("video.save", {"group_id": group_id, "name": "test", "wallpost": 0}),
+    # 2. Проверим dry-check ссылки на GitHub Pages в wall.post (publish_date=1000 -> 0 постов на стене!)
+    for label, test_att in [
+        ("gh_pages_root", "https://romanticallytrue14-commits.github.io/witch-game/"),
+        ("gh_pages_jpg", "https://romanticallytrue14-commits.github.io/witch-game/vk-news-agent/branding/cards/news.jpg"),
     ]:
         try:
-            r = pub.call_api(m_name, m_params, token=u)
-            out[f"user_{m_name}"] = {"ok": True, "keys": list(r.keys()) if isinstance(r, dict) else str(r)[:140]}
+            pub.call_api(
+                "wall.post",
+                {
+                    "owner_id": -group_id,
+                    "from_group": 1,
+                    "message": "check",
+                    "attachments": test_att,
+                    "publish_date": 1000,
+                },
+                token=pub.vk_token,
+            )
         except Exception as exc:  # noqa: BLE001
-            out[f"user_{m_name}"] = {"ok": False, "error": str(exc)[:220]}
-
-    # 3. Проверим также execute с VK_TOKEN (групповым ключом)!
-    for name, code in [
-        ("group_exec_getWallUploadServer", f'return API.photos.getWallUploadServer({{"group_id": {group_id}}});'),
-        ("group_exec_wallGet", f'return API.wall.get({{"owner_id": -{group_id}, "count": 2}});'),
-    ]:
-        try:
-            r = pub.call_api("execute", {"code": code}, token=pub.vk_token)
-            out[name] = {"ok": True, "summary": str(r)[:240]}
-        except Exception as exc:  # noqa: BLE001
-            out[name] = {"ok": False, "error": str(exc)[:240]}
+            out[f"drycheck_{label}"] = str(exc)[:240]
 
     (AGENT_DIR / "state" / "_upload_probe.json").write_text(
         json.dumps(out, ensure_ascii=False, indent=2) + "\n",
