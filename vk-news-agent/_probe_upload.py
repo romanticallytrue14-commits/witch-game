@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Read-only диагностика причины отказа фото (0 публикаций на стену)."""
+"""Проверка обхода Flood Control (Error 9) на photos.getWallUploadServer(group_id):
+1) photos.getWallUploadServer() без group_id + saveWallPhoto()
+2) photos.getAlbums / createAlbum + photos.getUploadServer(album_id, group_id) + photos.save()
+3) Прикрепление реального фото к посту #192 через wall.edit и проверка на m.vk.com/wall-85500918_192!
+"""
 
 from __future__ import annotations
 
 import json
 import os
 import sys
+import time
 import traceback
-import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -16,6 +20,7 @@ AGENT_DIR = Path(__file__).resolve().parent
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
 
+from audit_group import fetch_html
 from vk_publisher import VKAPIError, VKPublisher, encode_multipart_photo
 
 
@@ -23,94 +28,117 @@ def main() -> int:
     raw_user = (os.getenv("VK_USER_TOKEN") or "").strip()
     vk_tok = (os.getenv("VK_TOKEN") or "").strip()
     group_id = 85500918
+    pub = VKPublisher(vk_token=vk_tok, vk_group=str(group_id), vk_user_token=raw_user, fallback_group_id=group_id)
+    user_tok = pub.vk_user_token
+    sample_jpg = (AGENT_DIR / "branding" / "cards" / "tip.jpg").read_bytes()
+
+    def _mp(upload_url: str, field: str, fname: str) -> dict[str, Any]:
+        body, ctype = encode_multipart_photo(field, fname, "image/jpeg", sample_jpg)
+        req = urllib.request.Request(upload_url, data=body, headers={"Content-Type": ctype}, method="POST")
+        with urllib.request.urlopen(req, timeout=35, context=pub.ssl_ctx) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
 
     out: dict[str, Any] = {}
+    working_photo_att: str | None = None
 
-    # 1. Метаданные OAuth URL (без раскрытия секрета и user_id)
-    if "#" in raw_user or "?" in raw_user:
-        frag = raw_user.split("#", 1)[1] if "#" in raw_user else raw_user.split("?", 1)[1]
-        qs = urllib.parse.parse_qs(frag)
-        out["user_oauth_url_params"] = {
-            "keys": sorted(qs.keys()),
-            "expires_in": qs.get("expires_in", [None])[0],
-        }
+    # Тест 1: photos.getWallUploadServer БЕЗ group_id
+    try:
+        srv1 = pub.call_api("photos.getWallUploadServer", {}, token=user_tok)
+        up1 = _mp(str(srv1["upload_url"]), "photo", "wall_nogroup.jpg")
+        saved1 = pub.call_api(
+            "photos.saveWallPhoto",
+            {"photo": up1.get("photo"), "server": up1.get("server"), "hash": up1.get("hash")},
+            token=user_tok,
+        )
+        it1 = saved1[0]
+        att1 = f"photo{it1['owner_id']}_{it1['id']}"
+        out["wall_upload_without_group_id"] = {"ok": True, "att": att1, "album_id": it1.get("album_id")}
+        working_photo_att = att1
+    except Exception as exc:  # noqa: BLE001
+        out["wall_upload_without_group_id"] = {"ok": False, "error": str(exc)[:260]}
 
-    pub = VKPublisher(vk_token=vk_tok, vk_group=str(group_id), vk_user_token=raw_user, fallback_group_id=group_id)
-
-    # 2. Детали ответа VK API на VK_USER_TOKEN (почему именно code 9)
-    for host in ("https://api.vk.ru/method", "https://api.vk.com/method"):
-        for method, params in [
-            ("account.getAppPermissions", {}),
-            ("photos.getWallUploadServer", {"group_id": group_id}),
-        ]:
-            payload = dict(params)
-            payload["access_token"] = pub.vk_user_token
-            payload["v"] = "5.199"
-            req = urllib.request.Request(
-                f"{host}/{method}",
-                data=urllib.parse.urlencode(payload).encode("utf-8"),
-                headers={"User-Agent": "VKAndroidApp/8.99-23456 (Android 14; SDK 34; arm64-v8a; Pixel 8; ru; 2400x1080)"},
-                method="POST",
+    # Тест 2: photos.getAlbums + createAlbum + photos.getUploadServer(album_id, group_id) + photos.save
+    try:
+        albums_resp = pub.call_api("photos.getAlbums", {"owner_id": -group_id}, token=user_tok)
+        items = (albums_resp or {}).get("items") or []
+        album_id = None
+        for alb in items:
+            if alb.get("id", 0) > 0:
+                album_id = int(alb["id"])
+                break
+        if not album_id:
+            created = pub.call_api(
+                "photos.createAlbum",
+                {
+                    "title": "Иллюстрации Греем Мотор",
+                    "group_id": group_id,
+                    "upload_by_admins_only": 1,
+                    "comments_disabled": 0,
+                },
+                token=user_tok,
             )
-            with urllib.request.urlopen(req, timeout=20, context=pub.ssl_ctx) as resp:
-                raw_json = json.loads(resp.read().decode("utf-8", errors="replace"))
-            if "error" in raw_json:
-                err = raw_json["error"]
-                out[f"{host.split('//')[1]}_{method}"] = {
-                    "ok": False,
-                    "error_code": err.get("error_code"),
-                    "error_msg": err.get("error_msg"),
-                    "error_subcode": err.get("error_subcode"),
-                    "error_text": err.get("error_text"),
-                }
-            else:
-                out[f"{host.split('//')[1]}_{method}"] = {
-                    "ok": True,
-                    "resp_keys": list(raw_json.get("response", {}).keys()) if isinstance(raw_json.get("response"), dict) else str(raw_json.get("response"))[:120],
-                }
+            album_id = int(created["id"])
+        srv2 = pub.call_api("photos.getUploadServer", {"album_id": album_id, "group_id": group_id}, token=user_tok)
+        up2 = _mp(str(srv2["upload_url"]), "file1", "album_post.jpg")
+        saved2 = pub.call_api(
+            "photos.save",
+            {
+                "album_id": album_id,
+                "group_id": group_id,
+                "server": up2.get("server"),
+                "photos_list": up2.get("photos_list"),
+                "hash": up2.get("hash"),
+            },
+            token=user_tok,
+        )
+        it2 = saved2[0]
+        att2 = f"photo{it2['owner_id']}_{it2['id']}"
+        out["group_album_upload"] = {"ok": True, "album_id": album_id, "att": att2}
+        # Предпочитаем фото с owner_id группы (-85500918)!
+        working_photo_att = att2
+    except Exception as exc:  # noqa: BLE001
+        out["group_album_upload"] = {"ok": False, "error": str(exc)[:260]}
 
-    # 3. Что именно вернул saveMessagesPhoto (структура объекта фото без секретов)
-    sample_jpg = (AGENT_DIR / "branding" / "cards" / "news.jpg").read_bytes()
-    srv = pub.call_api("photos.getMessagesUploadServer", {"peer_id": 0}, token=pub.vk_token)
-    body, ctype = encode_multipart_photo("photo", "test.jpg", "image/jpeg", sample_jpg)
-    req = urllib.request.Request(str(srv["upload_url"]), data=body, headers={"Content-Type": ctype}, method="POST")
-    with urllib.request.urlopen(req, timeout=30, context=pub.ssl_ctx) as resp:
-        up = json.loads(resp.read().decode("utf-8", errors="replace"))
-    saved = pub.call_api(
-        "photos.saveMessagesPhoto",
-        {"photo": up.get("photo"), "server": up.get("server"), "hash": up.get("hash")},
-        token=pub.vk_token,
-    )
-    if isinstance(saved, list) and saved:
-        it = saved[0]
-        out["saved_msg_photo_meta"] = {
-            "album_id": it.get("album_id"),
-            "owner_id": it.get("owner_id"),
-            "id": it.get("id"),
-            "has_access_key": bool(it.get("access_key")),
-            "keys": sorted(it.keys()),
+    # Тест 3: wall.get с user_tok
+    post_192_text = ""
+    try:
+        wg = pub.call_api("wall.get", {"owner_id": -group_id, "count": 5}, token=user_tok)
+        items = (wg or {}).get("items") or []
+        out["wall_get_user"] = {
+            "ok": True,
+            "posts": [{"id": p.get("id"), "atts": [a.get("type") for a in (p.get("attachments") or [])]} for p in items],
         }
+        for p in items:
+            if p.get("id") == 192:
+                post_192_text = str(p.get("text") or "")
+    except Exception as exc:  # noqa: BLE001
+        out["wall_get_user"] = {"ok": False, "error": str(exc)[:260]}
 
-    # 4. Проверка: почему wall.post отбросил или принял вложение? Проверим с пустым message + заведомо невалидным post_id в wall.post НЕЛЬЗЯ (создаст пост!).
-    # Зато можно проверить wall.post с publish_date в прошлом (ВК возвращает Error 100 'invalid publish_date' ПОСЛЕ или ДО проверки attachments)!
-    att_key = f"photo{it['owner_id']}_{it['id']}_{it['access_key']}"
-    att_no_key = f"photo{it['owner_id']}_{it['id']}"
-    for label, cand in [("with_key", att_key), ("no_key", att_no_key), ("existing_wall_photo_187", "photo-85500918_457239233")]:
+    # Тест 4: Если получили публичное фото (att2 или att1), прикрепляем к посту #192 через wall.edit (или проверяем в wall.post drycheck)!
+    if working_photo_att and post_192_text:
         try:
-            pub.call_api(
-                "wall.post",
+            ed = pub.call_api(
+                "wall.edit",
                 {
                     "owner_id": -group_id,
+                    "post_id": 192,
                     "from_group": 1,
-                    "message": "check",
-                    "attachments": cand,
-                    "publish_date": 1000,  # Заведомо в 1970 году -> ВК гарантированно НЕ публикует и отвечает Error 100/214!
+                    "message": post_192_text,
+                    "attachments": working_photo_att,
                 },
-                token=pub.vk_token,
+                token=user_tok,
             )
-            out[f"drycheck_{label}"] = "unexpected_ok"
-        except VKAPIError as exc:
-            out[f"drycheck_{label}"] = {"code": exc.code, "msg": exc.vk_message}
+            time.sleep(2.0)
+            wg_after = pub.call_api("wall.get", {"owner_id": -group_id, "count": 3}, token=user_tok)
+            p192 = next((p for p in (wg_after or {}).get("items", []) if p.get("id") == 192), {})
+            out["edit_192"] = {
+                "ok": True,
+                "used_att": working_photo_att,
+                "resp": str(ed)[:120],
+                "attachments_after_api": [a.get("type") for a in (p192.get("attachments") or [])],
+            }
+        except Exception as exc:  # noqa: BLE001
+            out["edit_192"] = {"ok": False, "used_att": working_photo_att, "error": str(exc)[:260]}
 
     (AGENT_DIR / "state" / "_upload_probe.json").write_text(
         json.dumps(out, ensure_ascii=False, indent=2) + "\n",
