@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 10,
+  "total_posts": 11,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -178,6 +178,24 @@
       "category": "news",
       "vk_post_id": 190,
       "published_at": "2026-11-12T11:12:12.159266+00:00"
+    },
+    {
+      "url": "https://76.ru/text/transport/2026/11/12/76761061/",
+      "normalized_url": "https://76.ru/text/transport/2026/11/12/76761061",
+      "guid": "76761061",
+      "title": "На трассе М-8 в Ярославской области изменят движение из-за ремонта",
+      "tokens": [
+        "трасс",
+        "м-8",
+        "ярослав",
+        "облас",
+        "изменят",
+        "движен",
+        "ремонт"
+      ],
+      "category": "local_76",
+      "vk_post_id": 191,
+      "published_at": "2026-11-12T17:09:43.223375+00:00"
     }
   ]
 }
