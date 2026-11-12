@@ -7,17 +7,23 @@ on:
         description: "Адреса сообществ через запятую (например: neurohack_vk, greem_motor)"
         required: false
         type: string
-        default: "neurohack_vk"
+        default: ""
       count:
         description: "Сколько записей читать со стены"
         required: false
         type: string
-        default: "50"
+        default: ""
       commit_report:
         description: "Сохранить отчёты в репозиторий (vk-news-agent/state/audit/)"
         required: false
         type: boolean
         default: true
+  # Запуск при изменении файла-заявки на аудит (удобно, когда ручной dispatch недоступен)
+  push:
+    branches:
+      - main
+    paths:
+      - "vk-news-agent/state/audit_request.json"
 
 concurrency:
   group: vk-group-audit
@@ -49,16 +55,29 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Определение списка сообществ
+        id: targets
+        run: |
+          NAMES="${AUDIT_SCREEN_NAMES}"
+          if [ -z "${NAMES}" ] && [ -f vk-news-agent/state/audit_request.json ]; then
+            NAMES="$(python3 -c "import json;print(json.load(open('vk-news-agent/state/audit_request.json')).get('screen_names',''))")"
+          fi
+          NAMES="${NAMES:-neurohack_vk,greem_motor}"
+          COUNT="${AUDIT_COUNT:-50}"
+          echo "names=${NAMES}" >> "${GITHUB_OUTPUT}"
+          echo "count=${COUNT}" >> "${GITHUB_OUTPUT}"
+          echo "Аудит сообществ: ${NAMES} (записей: ${COUNT})"
+
       - name: Запуск аудита
         id: audit
         run: |
           python3 vk-news-agent/audit_group.py \
-            --screen-names "${AUDIT_SCREEN_NAMES}" \
-            --count "${AUDIT_COUNT}" \
+            --screen-names "${{ steps.targets.outputs.names }}" \
+            --count "${{ steps.targets.outputs.count }}" \
             --out-dir vk-news-agent/state/audit | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Сохранение отчёта в репозиторий
-        if: ${{ success() && inputs.commit_report }}
+        if: ${{ success() && (inputs.commit_report == true || github.event_name == 'push') }}
         continue-on-error: true
         run: |
           if [ -z "$(git status --porcelain vk-news-agent/state/audit)" ]; then
