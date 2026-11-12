@@ -1,63 +1,14 @@
 {
-  "user_oauth_url_params": {
-    "keys": [
-      "access_token",
-      "expires_in",
-      "user_id"
-    ],
-    "expires_in": "0"
-  },
-  "api.vk.ru/method_account.getAppPermissions": {
-    "ok": true,
-    "resp_keys": "336900"
-  },
-  "api.vk.ru/method_photos.getWallUploadServer": {
+  "wall_upload_without_group_id": {
     "ok": false,
-    "error_code": 9,
-    "error_msg": "Flood control",
-    "error_subcode": null,
-    "error_text": null
+    "error": "VK API error 9 в методе photos.getWallUploadServer: Flood control"
   },
-  "api.vk.com/method_account.getAppPermissions": {
-    "ok": true,
-    "resp_keys": "336900"
-  },
-  "api.vk.com/method_photos.getWallUploadServer": {
+  "group_album_upload": {
     "ok": false,
-    "error_code": 9,
-    "error_msg": "Flood control",
-    "error_subcode": null,
-    "error_text": null
+    "error": "VK API error 9 в методе photos.getAlbums: Flood control"
   },
-  "saved_msg_photo_meta": {
-    "album_id": -64,
-    "owner_id": -85500918,
-    "id": 457239238,
-    "has_access_key": true,
-    "keys": [
-      "access_key",
-      "album_id",
-      "date",
-      "has_tags",
-      "id",
-      "orig_photo",
-      "owner_id",
-      "sizes",
-      "text",
-      "user_id",
-      "web_view_token"
-    ]
-  },
-  "drycheck_with_key": {
-    "code": 100,
-    "msg": "One of the parameters specified was missing or invalid: invalid publish_date param"
-  },
-  "drycheck_no_key": {
-    "code": 100,
-    "msg": "One of the parameters specified was missing or invalid: invalid publish_date param"
-  },
-  "drycheck_existing_wall_photo_187": {
-    "code": 100,
-    "msg": "One of the parameters specified was missing or invalid: invalid publish_date param"
+  "wall_get_user": {
+    "ok": false,
+    "error": "VK API error 9 в методе wall.get: Flood control"
   }
 }
