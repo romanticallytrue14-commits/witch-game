@@ -367,6 +367,8 @@ def extract_embedded_posts(html: str, now_ts: int | None = None) -> list[dict[st
                 "from_id": obj.get("from_id"),
                 "is_pinned": bool(obj.get("is_pinned")),
                 "marked_as_ads": bool(obj.get("marked_as_ads")),
+                "signer_id": obj.get("signer_id"),
+                "keys": sorted(obj.keys()),
             }
         )
     posts.sort(key=lambda p: int(p["date"]), reverse=True)
@@ -465,6 +467,24 @@ def scrape_wall(
         if embedded:
             posts.extend(embedded)
             notes.append(f"записи найдены во встроенном JSON страницы {url}: {len(embedded)} шт.")
+            dbg.append(f"--- полные записи из JSON ({len(embedded)}) ---")
+            for p in embedded[:25]:
+                dbg.append(
+                    f"[{fmt_ts(p.get('date'))}] id={p.get('id')} from_id={p.get('from_id')} "
+                    f"signer={p.get('signer_id')} source={p.get('post_source')} "
+                    f"pin={p.get('is_pinned')} keys={p.get('keys')}"
+                )
+                dbg.append("TEXT: " + (p.get("text") or ""))
+            # Есть ли в сыром HTML вообще упоминания post_source / api?
+            for key in (
+                "post_source",
+                "api_id",
+                '"type":"api"',
+                "&quot;type&quot;:&quot;api&quot;",
+                "suggest",
+                "&quot;suggest&quot;",
+            ):
+                dbg.append(f"raw contains {key!r}: {html.count(key)}")
 
         # 1) Иногда VK встраивает состояние страницы в JSON.
         m = None if posts else re.search(r"__PRELOADED_STATE__\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
