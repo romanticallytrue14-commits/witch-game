@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Безопасная диагностика всех способов загрузки изображений в ВК с текущими токенами."""
+"""Проверка прикрепления фото к посту стены ВК через бессрочный ключ сообщества (VK_TOKEN)."""
 
 from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -15,7 +15,15 @@ AGENT_DIR = Path(__file__).resolve().parent
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
 
-from vk_publisher import VKAPIError, VKPublisher, encode_multipart_photo, inspect_vk_token_shape
+from audit_group import extract_embedded_posts, http_get
+from vk_publisher import VKAPIError, VKPublisher, encode_multipart_photo
+
+
+def fetch_public_wall_posts(group_id: int) -> list[dict[str, Any]]:
+    status, _, raw = http_get(f"https://vk.com/wall-{group_id}", desktop=True)
+    if status != 200 or not raw:
+        return []
+    return extract_embedded_posts(raw.decode("utf-8", errors="replace"))
 
 
 def main() -> int:
@@ -24,41 +32,42 @@ def main() -> int:
     group_id = 85500918
 
     pub = VKPublisher(
-        vk_token=vk_tok or vk_user,
+        vk_token=vk_tok,
         vk_group=str(group_id),
         vk_user_token=vk_user,
         fallback_group_id=group_id,
     )
 
+    out: dict[str, Any] = {}
+
+    # 1. Проверяем нормализованный pub.vk_user_token
+    if pub.vk_user_token:
+        try:
+            u = pub.call_api("users.get", {}, token=pub.vk_user_token)
+            out["normalized_user_token"] = {"ok": True, "users": str(u)[:160]}
+        except VKAPIError as exc:
+            out["normalized_user_token"] = {"ok": False, "code": exc.code, "msg": exc.vk_message}
+
+    # 2. Читаем текущие посты стены через публичный JSON страницы vk.com/wall-85500918
+    wall_before = fetch_public_wall_posts(group_id)
+    out["wall_before"] = [
+        {
+            "id": p.get("id"),
+            "attachments": [a.get("type") for a in (p.get("attachments") or [])],
+            "text_len": len(p.get("text") or ""),
+        }
+        for p in wall_before
+    ]
+
+    post_190 = next((p for p in wall_before if p.get("id") == 190), None)
+    if not post_190:
+        out["error"] = "Пост #190 не найден на публичной стене"
+        (AGENT_DIR / "state" / "_upload_probe.json").write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return 0
+
+    text_190 = str(post_190.get("text") or "").strip()
     sample_jpg = (AGENT_DIR / "branding" / "cards" / "news.jpg").read_bytes()
-    out: dict[str, Any] = {
-        "tokens": {},
-        "upload_probes": {},
-    }
 
-    for label, raw in [
-        ("VK_TOKEN", os.getenv("VK_TOKEN") or ""),
-        ("VK_USER_TOKEN", os.getenv("VK_USER_TOKEN") or ""),
-        ("VK_ADMIN_TOKEN", os.getenv("VK_ADMIN_TOKEN") or ""),
-        ("USER_TOKEN", os.getenv("USER_TOKEN") or ""),
-    ]:
-        clean = pub.vk_token if label == "VK_TOKEN" else VKPublisher._normalize_vk_token(raw) if hasattr(VKPublisher, "_normalize_vk_token") else raw.strip()
-        info: dict[str, Any] = {"present": bool(raw.strip()), "shape": inspect_vk_token_shape(raw)}
-        if raw.strip():
-            tok_val = vk_tok if label == "VK_TOKEN" else vk_user
-            for m_name, m_params in [
-                ("users.get", {}),
-                ("groups.getTokenPermissions", {}),
-                ("groups.getById", {"group_id": str(group_id)}),
-            ]:
-                try:
-                    res = pub.call_api(m_name, dict(m_params), token=tok_val)
-                    info[m_name] = {"ok": True, "summary": str(res)[:220]}
-                except VKAPIError as exc:
-                    info[m_name] = {"ok": False, "code": exc.code, "msg": exc.vk_message}
-        out["tokens"][label] = info
-
-    # Тестируем все возможные способы загрузки картинки через постоянный ключ сообщества VK_TOKEN
     def _multipart_post(upload_url: str, field: str, fname: str, mime: str, data_bytes: bytes) -> dict[str, Any]:
         body, ctype = encode_multipart_photo(field, fname, mime, data_bytes)
         req = urllib.request.Request(
@@ -70,79 +79,66 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=35, context=pub.ssl_ctx) as resp:
             return json.loads(resp.read().decode("utf-8", errors="replace"))
 
-    # 1. photos.getMessagesUploadServer (peer_id=0) + photos.saveMessagesPhoto
-    for peer_val in (0, 2000000001):
-        key = f"messages_photo_peer_{peer_val}"
+    # 3. Загружаем фото через photos.getMessagesUploadServer + photos.saveMessagesPhoto с ключом группы VK_TOKEN
+    srv = pub.call_api("photos.getMessagesUploadServer", {"peer_id": 0}, token=pub.vk_token)
+    up_res = _multipart_post(str(srv["upload_url"]), "photo", "post.jpg", "image/jpeg", sample_jpg)
+    saved = pub.call_api(
+        "photos.saveMessagesPhoto",
+        {"photo": up_res.get("photo"), "server": up_res.get("server"), "hash": up_res.get("hash")},
+        token=pub.vk_token,
+    )
+    item = saved[0]
+    att_with_key = f"photo{item['owner_id']}_{item['id']}_{item['access_key']}" if item.get("access_key") else f"photo{item['owner_id']}_{item['id']}"
+    att_plain = f"photo{item['owner_id']}_{item['id']}"
+
+    out["uploaded_msg_photo"] = {"att_with_key": att_with_key, "att_plain": att_plain}
+    out["edit_attempts"] = []
+
+    for label, cand_att in [("with_access_key", att_with_key), ("without_access_key", att_plain)]:
         try:
-            srv = pub.call_api("photos.getMessagesUploadServer", {"peer_id": peer_val}, token=pub.vk_token)
-            up_url = str((srv or {}).get("upload_url") or "")
-            up_res = _multipart_post(up_url, "photo", "post.jpg", "image/jpeg", sample_jpg)
-            saved = pub.call_api(
-                "photos.saveMessagesPhoto",
+            res = pub.call_api(
+                "wall.edit",
                 {
-                    "photo": up_res.get("photo"),
-                    "server": up_res.get("server"),
-                    "hash": up_res.get("hash"),
+                    "owner_id": -group_id,
+                    "post_id": 190,
+                    "from_group": 1,
+                    "message": text_190,
+                    "attachments": cand_att,
                 },
                 token=pub.vk_token,
             )
-            item = saved[0] if isinstance(saved, list) and saved else {}
-            out["upload_probes"][key] = {
-                "ok": True,
-                "owner_id": item.get("owner_id"),
-                "id": item.get("id"),
-                "has_access_key": bool(item.get("access_key")),
-                "att_with_key": f"photo{item.get('owner_id')}_{item.get('id')}_{item.get('access_key')}" if item.get("access_key") else "",
-                "att_plain": f"photo{item.get('owner_id')}_{item.get('id')}",
-            }
-            break
+            time.sleep(2.0)
+            wall_after = fetch_public_wall_posts(group_id)
+            p190_after = next((p for p in wall_after if p.get("id") == 190), {})
+            atts_after = [a.get("type") for a in (p190_after.get("attachments") or [])]
+            out["edit_attempts"].append(
+                {
+                    "variant": label,
+                    "api_ok": True,
+                    "resp": str(res)[:160],
+                    "public_attachments_after": atts_after,
+                }
+            )
+            if "photo" in atts_after:
+                break
         except Exception as exc:  # noqa: BLE001
-            out["upload_probes"][key] = {"ok": False, "error": str(exc)[:260]}
+            out["edit_attempts"].append({"variant": label, "api_ok": False, "error": str(exc)[:260]})
 
-    # 2. docs.getWallUploadServer + docs.save (JPEG и GIF)
-    for ext, mime in [("jpg", "image/jpeg"), ("gif", "image/gif")]:
-        key = f"docs_wall_{ext}"
+    # 4. На всякий случай проверим также market photo upload с ключом группы
+    for m_method, m_params in [
+        ("photos.getMarketUploadServer", {"group_id": group_id, "main_photo": 1}),
+        ("photos.getMarketAlbumUploadServer", {"group_id": group_id}),
+    ]:
         try:
-            payload_bytes = sample_jpg
-            if ext == "gif":
-                gif_tmp = Path("/tmp/_probe.gif")
-                subprocess.run(["convert", str(AGENT_DIR / "branding" / "cards" / "news.jpg"), "-resize", "800x500", str(gif_tmp)], check=True)
-                payload_bytes = gif_tmp.read_bytes()
-            srv = pub.call_api("docs.getWallUploadServer", {"group_id": group_id}, token=pub.vk_token)
-            up_url = str((srv or {}).get("upload_url") or "")
-            up_res = _multipart_post(up_url, "file", f"illustration.{ext}", mime, payload_bytes)
-            saved = pub.call_api("docs.save", {"file": up_res.get("file"), "title": f"greem_motor.{ext}"}, token=pub.vk_token)
-            doc_obj = saved.get("doc") if isinstance(saved, dict) else (saved[0] if isinstance(saved, list) and saved else {})
-            out["upload_probes"][key] = {
-                "ok": True,
-                "type": doc_obj.get("type"),
-                "owner_id": doc_obj.get("owner_id"),
-                "id": doc_obj.get("id"),
-                "has_preview": bool(doc_obj.get("preview")),
-                "att": f"doc{doc_obj.get('owner_id')}_{doc_obj.get('id')}",
-            }
+            msrv = pub.call_api(m_method, m_params, token=pub.vk_token)
+            out[m_method] = {"ok": True, "has_url": bool((msrv or {}).get("upload_url"))}
         except Exception as exc:  # noqa: BLE001
-            out["upload_probes"][key] = {"ok": False, "error": str(exc)[:260]}
+            out[m_method] = {"ok": False, "error": str(exc)[:220]}
 
-    # 3. photos.getWallUploadServer с pub.vk_token напрямую
-    try:
-        srv = pub.call_api("photos.getWallUploadServer", {"group_id": group_id}, token=pub.vk_token)
-        out["upload_probes"]["wall_photo_group_token"] = {"ok": True, "has_url": bool((srv or {}).get("upload_url"))}
-    except Exception as exc:  # noqa: BLE001
-        out["upload_probes"]["wall_photo_group_token"] = {"ok": False, "error": str(exc)[:260]}
-
-    # 4. Если messages_photo сработал — проверим, принимает ли wall.edit его на реальном посте #190 (которому как раз не хватает картинки!)
-    msg_probe = out["upload_probes"].get("messages_photo_peer_0") or {}
-    if msg_probe.get("ok"):
-        # Читаем текст поста #190 через wall.getById (доступен ли он с ключом группы?)
-        try:
-            by_id = pub.call_api("wall.getById", {"posts": f"-{group_id}_190"}, token=pub.vk_token)
-            out["upload_probes"]["wall_getById_group_token"] = {"ok": True, "summary": str(by_id)[:220]}
-        except Exception as exc:  # noqa: BLE001
-            out["upload_probes"]["wall_getById_group_token"] = {"ok": False, "error": str(exc)[:260]}
-
-    target = AGENT_DIR / "state" / "_upload_probe.json"
-    target.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (AGENT_DIR / "state" / "_upload_probe.json").write_text(
+        json.dumps(out, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return 0
 
 
