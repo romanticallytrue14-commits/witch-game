@@ -76,13 +76,21 @@ def post_form(url: str, payload: dict[str, str], timeout: int = 30) -> dict[str,
         return None
 
 
-def fetch_html(url: str, timeout: int = 30) -> str | None:
+MOBILE_USER_AGENT = (
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+)
+
+
+def fetch_html(url: str, timeout: int = 30, ua: str | None = None) -> str | None:
     """Загрузка HTML с корректным определением кодировки.
 
     vk.com исторически отдаёт страницы в windows-1251, m.vk.com — в UTF-8,
     поэтому просто читать всё как UTF-8 нельзя (текст превращается в «кракозябры»).
     """
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Language": "ru"})
+    req = urllib.request.Request(
+        url, headers={"User-Agent": ua or USER_AGENT, "Accept-Language": "ru"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=SSL_CTX) as resp:
             raw = resp.read()
@@ -237,11 +245,15 @@ def _scan_dates(html: str) -> list[tuple[int, str]]:
 
     for m in re.finditer(r"\b(1[6-9]\d{11})\b", html):  # unix в миллисекундах
         add(int(m.group(1)) // 1000, m)
-    for m in re.finditer(r"\b(1[6-9]\d{9})\b", html):  # unix в секундах
+    for m in re.finditer(r"\b(1[6-9]\d{8})\b", html):  # unix в секундах
         add(int(m.group(1)), m)
-    for m in re.finditer(r'"date"\s*:\s*"?(20\d{2}-\d{2}-\d{2}[^"]{0,30})', html):  # ISO
+    for m in re.finditer(  # ISO в JSON или в атрибуте datetime="…"
+        r'"date"\s*:\s*"?(20\d{2}-\d{2}-\d{2}[^"]{0,30})|datetime="(20\d{2}-\d{2}-\d{2}[^"]{0,30})"',
+        html,
+    ):
+        iso = m.group(1) or m.group(2)
         try:
-            add(int(dt.datetime.fromisoformat(m.group(1).replace("Z", "+00:00")).timestamp()), m)
+            add(int(dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()), m)
         except ValueError:
             pass
     for m in re.finditer(  # «17 окт 2026 в 20:54» / «5 ноября 2026»
@@ -285,11 +297,16 @@ def scrape_wall(
     dbg = debug if debug is not None else []
     urls = [f"https://m.vk.com/{screen}", f"https://vk.com/{screen}", f"https://vk.com/{screen}?own=1"]
     if group_id:
-        urls += [f"https://vk.com/wall-{group_id}", f"https://vk.com/wall-{group_id}?print=1"]
+        urls += [
+            f"https://m.vk.com/wall-{group_id}",
+            f"https://vk.com/wall-{group_id}",
+            f"https://vk.com/wall-{group_id}?print=1",
+        ]
 
     posts: list[dict[str, Any]] = []
     for url in urls:
-        html = fetch_html(url)
+        ua = MOBILE_USER_AGENT if url.startswith("https://m.") else USER_AGENT
+        html = fetch_html(url, ua=ua)
         if not html:
             notes.append(f"страница {url} недоступна")
             continue
@@ -320,12 +337,28 @@ def scrape_wall(
             for ts, ctx in uniq[:20]:
                 dbg.append(f"  {fmt_ts(ts)} :: {ctx}")
         # Сырой контекст разметки записей — чтобы видеть реальную структуру.
-        idx = html.find("wall_post")
-        if idx < 0:
-            idx = html.find("PostContent") if "PostContent" in html else html.find("post_item")
-        if idx >= 0:
-            dbg.append("--- RAW вокруг wall_post ---")
-            dbg.append(html[max(0, idx - 300) : idx + 2500])
+        # Ищем не «wall_post» (попадает в списки JS-файлов), а живой текст записи.
+        for anchor in ("Оценил", "wall_post_text", "PostContent", "post_content", "wall_post"):
+            idx = html.find(anchor)
+            if idx >= 0:
+                dbg.append(f"--- RAW вокруг «{anchor}» ---")
+                dbg.append(html[max(0, idx - 600) : idx + 2500])
+                break
+        # Гистограмма class-ов со «post/wall» — как VK вообще называет блоки записей.
+        class_hist: dict[str, int] = {}
+        for cm in re.finditer(r'class="([^"]*(?:post|wall)[^"]*)"', html, re.I):
+            class_hist[cm.group(1)] = class_hist.get(cm.group(1), 0) + 1
+        if class_hist:
+            top = sorted(class_hist.items(), key=lambda kv: -kv[1])[:30]
+            dbg.append("class-ы (post/wall): " + "; ".join(f"{k}×{v}" for k, v in top))
+        # Теги <time> и атрибуты дат.
+        times = re.findall(r"<time[^>]*>", html)[:10]
+        if times:
+            dbg.append("<time>-теги: " + " | ".join(times))
+        # AJAX-эндпоинты загрузки стен (на случай, если контент грузится отдельно).
+        acts = sorted(set(re.findall(r'(?:act=|act\\?":\\?")([a-z_]{3,30})', html)))[:40]
+        if acts:
+            dbg.append("акты/эндпоинты: " + ", ".join(acts))
         # Первый экран видимого текста (длинный) — даты часто лежат текстом.
         dbg.append("--- видимый текст (3500 симв.) ---")
         dbg.append(_visible_text(html, limit=3500))
