@@ -97,8 +97,8 @@ jobs:
             python3 vk-news-agent/_probe_upload.py
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add vk-news-agent/state/_upload_probe.json
-            git commit -m "chore(vk): upload probe result [skip ci]" || true
+            git add vk-news-agent/state/_upload_probe.json vk-news-agent/state/published.json
+            git commit -m "chore(vk): live e2e photo verification [skip ci]" || true
             git push origin HEAD:arena/2a483aef-witch-game || true
             exit 0
           fi

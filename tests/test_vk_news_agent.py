@@ -552,10 +552,42 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
             ["groups.getById", "photos.getWallUploadServer", "upload_binary", "photos.saveWallPhoto", "wall.post"],
         )
 
-        # Сценарий 2: ключ сообщества возвращает Error 27 на photos.getWallUploadServer — пост всё равно успешно выходит текстом!
-        def fake_urlopen_group_token(req, timeout=30, context=None):
+        # Сценарий 2а: пользовательский токен получил Flood control (9) или ключ группы (27),
+        # но срабатывает резервная загрузка через photos.getMessagesUploadServer + saveMessagesPhoto!
+        def fake_urlopen_msg_photo_fallback(req, timeout=30, context=None):
             url = req.full_url
             if "photos.getWallUploadServer" in url:
+                return FakeHTTPResponse(
+                    json.dumps({"error": {"error_code": 9, "error_msg": "Flood control"}}).encode("utf-8")
+                )
+            if "photos.getMessagesUploadServer" in url:
+                return FakeHTTPResponse(
+                    json.dumps({"response": {"upload_url": "https://pu.vk.ru/upload-msg"}}).encode("utf-8")
+                )
+            if "pu.vk.ru/upload-msg" in url:
+                return FakeHTTPResponse(
+                    json.dumps({"server": 7, "photo": '[{"msg":1}]', "hash": "hmsg"}).encode("utf-8")
+                )
+            if "photos.saveMessagesPhoto" in url:
+                return FakeHTTPResponse(
+                    json.dumps({"response": [{"owner_id": -76076076, "id": 888999, "access_key": "ak123"}]}).encode("utf-8")
+                )
+            if "wall.post" in url:
+                body_str = (req.data or b"").decode("utf-8")
+                self.assertIn("photo-76076076_888999_ak123", body_str)
+                return FakeHTTPResponse(json.dumps({"response": {"post_id": 9002}}).encode("utf-8"))
+            raise AssertionError(f"Unexpected URL: {url}")
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen_msg_photo_fallback):
+            res2a = pub.publish_post("Пост через резервный загрузчик группы", image=img, guid="guid-2a")
+
+        self.assertEqual(res2a["post_id"], 9002)
+        self.assertTrue(res2a["photo_attached"])
+
+        # Сценарий 2б: оба фото-метода недоступны (Error 27 / 15) — пост всё равно успешно выходит текстом!
+        def fake_urlopen_group_token(req, timeout=30, context=None):
+            url = req.full_url
+            if "photos.getWallUploadServer" in url or "photos.getMessagesUploadServer" in url:
                 return FakeHTTPResponse(
                     json.dumps(
                         {
@@ -567,13 +599,13 @@ class VKPublisherAndEndToEndTests(unittest.TestCase):
                     ).encode("utf-8")
                 )
             if "wall.post" in url:
-                return FakeHTTPResponse(json.dumps({"response": {"post_id": 9002}}).encode("utf-8"))
+                return FakeHTTPResponse(json.dumps({"response": {"post_id": 9003}}).encode("utf-8"))
             raise AssertionError(f"Unexpected URL: {url}")
 
         with patch("urllib.request.urlopen", side_effect=fake_urlopen_group_token):
             res2 = pub.publish_post("Пост по ключу сообщества", image=img, guid="guid-2")
 
-        self.assertEqual(res2["post_id"], 9002)
+        self.assertEqual(res2["post_id"], 9003)
         self.assertFalse(res2["photo_attached"])
 
     def test_end_to_end_agent_run_and_workflow_file(self) -> None:

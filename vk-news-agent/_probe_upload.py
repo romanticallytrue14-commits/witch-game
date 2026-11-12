@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Проверка публичных фото-методов ВК (market / market_album / messages), доступных ключу сообщества VK_TOKEN."""
+"""Боевой тест публикации 1 свежего поста через run_agent и проверка наличия фото на публичной стене vk.com/wall-85500918."""
 
 from __future__ import annotations
 
 import json
-import os
+import re
 import sys
+import time
 import traceback
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -15,76 +15,47 @@ AGENT_DIR = Path(__file__).resolve().parent
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
 
-from vk_publisher import VKPublisher, encode_multipart_photo
+import agent
+from audit_group import extract_embedded_posts, fetch_html
 
 
 def main() -> int:
-    vk_tok = (os.getenv("VK_TOKEN") or "").strip()
-    group_id = 85500918
-    pub = VKPublisher(vk_token=vk_tok, vk_group=str(group_id), fallback_group_id=group_id)
-    sample_jpg = (AGENT_DIR / "branding" / "cards" / "news.jpg").read_bytes()
-
-    def _mp(upload_url: str, field: str, fname: str, mime: str, raw: bytes) -> dict[str, Any]:
-        body, ctype = encode_multipart_photo(field, fname, mime, raw)
-        req = urllib.request.Request(
-            upload_url,
-            data=body,
-            headers={"Content-Type": ctype, "User-Agent": "Mozilla/5.0"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=35, context=pub.ssl_ctx) as resp:
-            return json.loads(resp.read().decode("utf-8", errors="replace"))
-
+    state_path = AGENT_DIR / "state" / "published.json"
     out: dict[str, Any] = {}
-
-    # 1. Market Album Photo
     try:
-        srv = pub.call_api("photos.getMarketAlbumUploadServer", {"group_id": group_id}, token=pub.vk_token)
-        up = _mp(str(srv["upload_url"]), "file", "card.jpg", "image/jpeg", sample_jpg)
-        saved = pub.call_api(
-            "photos.saveMarketAlbumPhoto",
-            {
-                "group_id": group_id,
-                "photo": up.get("photo") or up.get("file"),
-                "server": up.get("server"),
-                "hash": up.get("hash"),
-            },
-            token=pub.vk_token,
+        rc = agent.run_agent(
+            config_path=AGENT_DIR / "config.json",
+            state_path=state_path,
+            dry_run=False,
+            max_posts=1,
         )
-        out["market_album_photo"] = {"ok": True, "saved": saved}
-    except Exception as exc:  # noqa: BLE001
-        out["market_album_photo"] = {"ok": False, "error": str(exc)[:300]}
+        out["agent_rc"] = rc
+        pub_data = json.loads(state_path.read_text(encoding="utf-8"))
+        latest_history = (pub_data.get("history") or [None])[0]
+        out["latest_published_entry"] = latest_history
 
-    # 2. Market Photo
-    try:
-        srv = pub.call_api("photos.getMarketUploadServer", {"group_id": group_id, "main_photo": 0}, token=pub.vk_token)
-        up = _mp(str(srv["upload_url"]), "file", "card.jpg", "image/jpeg", sample_jpg)
-        saved = pub.call_api(
-            "photos.saveMarketPhoto",
+        time.sleep(2.5)
+        html = fetch_html("https://vk.com/wall-85500918") or ""
+        posts = extract_embedded_posts(html) if html else []
+        out["public_wall_posts"] = [
             {
-                "group_id": group_id,
-                "photo": up.get("photo"),
-                "server": up.get("server"),
-                "hash": up.get("hash"),
-                "crop_data": up.get("crop_data"),
-                "crop_hash": up.get("crop_hash"),
-            },
-            token=pub.vk_token,
-        )
-        out["market_photo"] = {"ok": True, "saved": saved}
+                "id": p.get("id"),
+                "has_attachments_meta": "attachments_meta" in p,
+                "has_compact_attachments": "compact_attachments_before_cut" in p,
+                "attachments_meta_preview": str(p.get("attachments_meta", ""))[:260],
+                "text_head": str(p.get("text", ""))[:180],
+            }
+            for p in posts[:5]
+        ]
+        if latest_history and latest_history.get("post_id"):
+            pid = latest_history["post_id"]
+            out["html_mentions_post_photo"] = bool(
+                re.search(rf"wall-85500918_{pid}.{{0,4000}}photo-85500918_", html, flags=re.DOTALL)
+                or ("photo-85500918_" in str(out["public_wall_posts"][0]))
+            )
     except Exception as exc:  # noqa: BLE001
-        out["market_photo"] = {"ok": False, "error": str(exc)[:300]}
-
-    # 3. Chat upload / другие методы
-    for m_name, m_params in [
-        ("photos.getAlbums", {"owner_id": -group_id}),
-        ("photos.getUploadServer", {"group_id": group_id}),
-    ]:
-        try:
-            r = pub.call_api(m_name, m_params, token=pub.vk_token)
-            out[m_name] = {"ok": True, "summary": str(r)[:220]}
-        except Exception as exc:  # noqa: BLE001
-            out[m_name] = {"ok": False, "error": str(exc)[:220]}
+        out["fatal"] = str(exc)
+        out["trace"] = traceback.format_exc()[-1200:]
 
     (AGENT_DIR / "state" / "_upload_probe.json").write_text(
         json.dumps(out, ensure_ascii=False, indent=2) + "\n",
@@ -94,11 +65,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except Exception:
-        (AGENT_DIR / "state" / "_upload_probe.json").write_text(
-            json.dumps({"fatal": traceback.format_exc()[-1000:]}, indent=2),
-            encoding="utf-8",
-        )
-        raise SystemExit(0)
+    raise SystemExit(main())

@@ -150,6 +150,8 @@ def call_api(
 
 def pick_tokens() -> list[str | None]:
     """Список токенов в порядке приоритета: пользовательский → групповой → без токена."""
+    from vk_publisher import normalize_vk_token
+
     raw = [
         os.environ.get("VK_USER_TOKEN", ""),
         os.environ.get("VK_TOKEN", ""),
@@ -159,7 +161,7 @@ def pick_tokens() -> list[str | None]:
     ]
     seen: list[str] = []
     for t in raw:
-        t = (t or "").strip()
+        t = normalize_vk_token(t or "")
         if t and t not in seen:
             seen.append(t)
     tokens: list[str | None] = list(seen)

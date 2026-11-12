@@ -369,6 +369,13 @@ class VKPublisher:
         self.fallback_group_id = abs(int(fallback_group_id)) if fallback_group_id else None
         self.ssl_ctx = ssl.create_default_context()
         self._resolved_group_id: int | None = None
+        self._user_token_disabled: bool = False
+
+    def _active_user_token(self) -> str:
+        """Возвращает пользовательский токен, если он задан и не заблокирован Flood Control / истечением сессии."""
+        if self._user_token_disabled:
+            return ""
+        return self.vk_user_token
 
     def call_api(self, method: str, params: dict[str, Any], token: str | None = None) -> Any:
         """Вызывает метод VK API на api.vk.ru с резервным переключением на api.vk.com."""
@@ -474,7 +481,8 @@ class VKPublisher:
     def get_recent_wall_posts(self, count: int = 30) -> list[dict[str, Any]]:
         """Читает последние посты со стены группы для дополнительной защиты от повторов."""
         group_id = self.resolve_group_id()
-        token_for_read = self.vk_user_token or self.vk_token
+        user_tok = self._active_user_token()
+        token_for_read = user_tok or self.vk_token
         try:
             resp = self.call_api(
                 "wall.get",
@@ -484,8 +492,14 @@ class VKPublisher:
             if isinstance(resp, dict) and isinstance(resp.get("items"), list):
                 return resp["items"]
         except VKAPIError as exc:
-            # С ключом сообщества метод wall.get недоступен (код 27) — это штатная ситуация
-            if exc.code in {15, 27}:
+            if user_tok and token_for_read == user_tok and exc.code in {5, 9, 10, 15, 27, 28, 29}:
+                self._user_token_disabled = True
+                logger.warning(
+                    "Пользовательский токен VK_USER_TOKEN временно недоступен (код %d: %s) — переключаемся на бессрочный ключ сообщества.",
+                    exc.code,
+                    exc.vk_message,
+                )
+            elif exc.code in {15, 27}:
                 logger.info(
                     "Чтение стены wall.get пропущено (используется ключ сообщества; дедупликация работает по state/published.json)."
                 )
@@ -493,10 +507,105 @@ class VKPublisher:
                 logger.warning("Не удалось прочитать стену ВК для проверки дублей: %s", exc)
         return []
 
+    def _upload_multipart_to_vk(self, upload_url: str, image: PreparedImage) -> dict[str, Any] | None:
+        body, content_type = encode_multipart_photo(
+            "photo",
+            image.filename,
+            image.mime_type,
+            image.data,
+        )
+        req = urllib.request.Request(
+            upload_url,
+            data=body,
+            headers={
+                "Content-Type": content_type,
+                "User-Agent": USER_AGENT,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=40, context=self.ssl_ctx) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="replace"))
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            logger.warning("Сбой загрузки файла фото на upload_url ВК: %s", exc)
+            return None
+
+    @staticmethod
+    def _format_saved_photo_attachment(saved: Any) -> str | None:
+        if isinstance(saved, list) and saved:
+            item = saved[0]
+            owner_id = item.get("owner_id")
+            media_id = item.get("id")
+            access_key = item.get("access_key")
+            if owner_id is not None and media_id is not None:
+                att = f"photo{owner_id}_{media_id}"
+                if access_key:
+                    att = f"{att}_{access_key}"
+                return att
+        return None
+
+    def _upload_photo_via_group_messages(self, image: PreparedImage) -> str | None:
+        """Безотказная загрузка фото по бессрочному ключу сообщества (photos.getMessagesUploadServer + saveMessagesPhoto)."""
+        if not self.vk_token:
+            return None
+        for attempt in range(1, 4):
+            try:
+                upload_srv = self.call_api(
+                    "photos.getMessagesUploadServer",
+                    {"peer_id": 0},
+                    token=self.vk_token,
+                )
+            except VKAPIError as exc:
+                if exc.code in {5, 9, 15, 27, 28, 29}:
+                    logger.warning(
+                        "Резервная загрузка фото через ключ сообщества недоступна (код %d: %s).",
+                        exc.code,
+                        exc.vk_message,
+                    )
+                    return None
+                logger.warning("Ошибка photos.getMessagesUploadServer (попытка %d/3): %s", attempt, exc)
+                time.sleep(1.0 * attempt)
+                continue
+
+            upload_url = str((upload_srv or {}).get("upload_url", "")).strip()
+            if not upload_url:
+                time.sleep(1.0 * attempt)
+                continue
+
+            uploaded = self._upload_multipart_to_vk(upload_url, image)
+            photo_field = (uploaded or {}).get("photo")
+            if not photo_field or photo_field == "[]":
+                time.sleep(1.0 * attempt)
+                continue
+
+            try:
+                saved = self.call_api(
+                    "photos.saveMessagesPhoto",
+                    {
+                        "photo": photo_field,
+                        "server": (uploaded or {}).get("server"),
+                        "hash": (uploaded or {}).get("hash"),
+                    },
+                    token=self.vk_token,
+                )
+            except VKAPIError as exc:
+                if exc.code in {5, 9, 15, 27}:
+                    return None
+                logger.warning("Ошибка photos.saveMessagesPhoto (попытка %d/3): %s", attempt, exc)
+                time.sleep(1.0 * attempt)
+                continue
+
+            att = self._format_saved_photo_attachment(saved)
+            if att:
+                logger.info("Фото успешно загружено через ключ сообщества (saveMessagesPhoto): %s", att)
+                return att
+        return None
+
     def upload_wall_photo(self, image: PreparedImage) -> str | None:
-        """Загружает фото на сервер ВК (с повторами при сетевых сбоях) и возвращает строку 'photo123_456'."""
+        """Загружает фото на сервер ВК и возвращает строку 'photo-123_456' (с резервом через ключ сообщества)."""
         group_id = self.resolve_group_id()
-        photo_token = self.vk_user_token or self.vk_token
+        user_tok = self._active_user_token()
+        photo_token = user_tok or self.vk_token
 
         for attempt in range(1, 4):
             try:
@@ -506,15 +615,15 @@ class VKPublisher:
                     token=photo_token,
                 )
             except VKAPIError as exc:
-                if exc.code in {15, 27}:
-                    logger.warning(
-                        "ВК отклонил загрузку фото с кодом %d (%s): методы photos.* требуют токен пользователя-админа "
-                        "(VK_TOKEN пользователя с правами wall,photos,groups,offline или отдельный секрет VK_USER_TOKEN). "
-                        "Пост будет опубликован без вложенного фото.",
+                if exc.code in {5, 9, 15, 27, 28, 29}:
+                    if user_tok and photo_token == user_tok:
+                        self._user_token_disabled = True
+                    logger.info(
+                        "photos.getWallUploadServer отклонил токен (код %d: %s) — переключаемся на загрузку фото через ключ сообщества.",
                         exc.code,
                         exc.vk_message,
                     )
-                    return None
+                    break
                 logger.warning("Ошибка photos.getWallUploadServer (попытка %d/3): %s", attempt, exc)
                 time.sleep(1.0 * attempt)
                 continue
@@ -525,30 +634,8 @@ class VKPublisher:
                 time.sleep(1.0 * attempt)
                 continue
 
-            body, content_type = encode_multipart_photo(
-                "photo",
-                image.filename,
-                image.mime_type,
-                image.data,
-            )
-            req = urllib.request.Request(
-                upload_url,
-                data=body,
-                headers={
-                    "Content-Type": content_type,
-                    "User-Agent": USER_AGENT,
-                },
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=40, context=self.ssl_ctx) as resp:
-                    uploaded = json.loads(resp.read().decode("utf-8", errors="replace"))
-            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-                logger.warning("Сбой загрузки файла фото на upload_url ВК (попытка %d/3): %s", attempt, exc)
-                time.sleep(1.2 * attempt)
-                continue
-
-            photo_field = uploaded.get("photo")
+            uploaded = self._upload_multipart_to_vk(upload_url, image)
+            photo_field = (uploaded or {}).get("photo")
             if not photo_field or photo_field == "[]":
                 logger.warning("Сервер загрузки ВК вернул пустое поле photo (попытка %d/3)", attempt)
                 time.sleep(1.2 * attempt)
@@ -560,28 +647,25 @@ class VKPublisher:
                     {
                         "group_id": group_id,
                         "photo": photo_field,
-                        "server": uploaded.get("server"),
-                        "hash": uploaded.get("hash"),
+                        "server": (uploaded or {}).get("server"),
+                        "hash": (uploaded or {}).get("hash"),
                     },
                     token=photo_token,
                 )
             except VKAPIError as exc:
+                if exc.code in {5, 9, 15, 27, 28, 29}:
+                    if user_tok and photo_token == user_tok:
+                        self._user_token_disabled = True
+                    break
                 logger.warning("Ошибка сохранения фото photos.saveWallPhoto (попытка %d/3): %s", attempt, exc)
                 time.sleep(1.2 * attempt)
                 continue
 
-            if isinstance(saved, list) and saved:
-                item = saved[0]
-                owner_id = item.get("owner_id")
-                media_id = item.get("id")
-                access_key = item.get("access_key")
-                if owner_id is not None and media_id is not None:
-                    att = f"photo{owner_id}_{media_id}"
-                    if access_key:
-                        att = f"{att}_{access_key}"
-                    return att
+            att = self._format_saved_photo_attachment(saved)
+            if att:
+                return att
 
-        return None
+        return self._upload_photo_via_group_messages(image)
 
     def publish_post(
         self,
@@ -614,17 +698,27 @@ class VKPublisher:
         if guid:
             params["guid"] = guid
 
+        active_user = self._active_user_token()
         try:
             resp = self.call_api("wall.post", params, token=self.vk_token)
         except VKAPIError as exc:
+            # Если ВК отклонил формат photo{owner}_{id}_{access_key}, пробуем без access_key
+            if exc.code == 100 and photo_att and photo_att.count("_") >= 2:
+                plain_photo = "_".join(photo_att.split("_")[:2])
+                logger.info("Повторяем wall.post с идентификатором фото без access_key: %s", plain_photo)
+                photo_att = plain_photo
+                attachments = [plain_photo]
+                params["attachments"] = plain_photo
+                resp = self.call_api("wall.post", params, token=self.vk_token)
             # С ключом сообщества голая ссылка в attachments вызывает Error 100 (link_photo_sizing_rule)
-            if exc.code == 100 and "attachments" in params and not photo_att:
-                logger.warning("ВК отклонил ссылочное вложение (%s) — публикуем текст без карточки ссылки.", exc.vk_message)
+            elif exc.code == 100 and "attachments" in params:
+                logger.warning("ВК отклонил вложение (%s) — публикуем текст без вложения.", exc.vk_message)
                 params.pop("attachments", None)
+                photo_att = None
                 attachments = []
                 resp = self.call_api("wall.post", params, token=self.vk_token)
-            elif exc.code in {15, 27, 1051} and self.vk_user_token:
-                resp = self.call_api("wall.post", params, token=self.vk_user_token)
+            elif exc.code in {15, 27, 1051} and active_user:
+                resp = self.call_api("wall.post", params, token=active_user)
             else:
                 raise
         post_id = int((resp or {}).get("post_id", 0))
