@@ -1,6 +1,6 @@
 # Аудит сообщества vk.ru/neurohack_vk
 
-_Сформировано: 2026-11-12 17:15 MSK_
+_Сформировано: 2026-11-12 17:26 MSK_
 
 ## Сообщество
 
@@ -35,6 +35,10 @@ _Сформировано: 2026-11-12 17:15 MSK_
 - wall.get: ошибка VK 5 — User authorization failed: invalid access_token (4).
 - wall.get: ошибка VK 27 — Group authorization failed: method is unavailable with group auth.
 - wall.get: ошибка VK 15 — Access denied: token required
+- https://m.vk.com/neurohack_vk: 113673 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=5, Post component=10, publish_date=2, captcha/security=1, window.__=33
+- https://m.vk.com/neurohack_vk: первые символы текста — «ВКонтакте | ВКонтакте Ваш браузер устарел Из-за этого ВКонтакте может работать медленно и нестабильно. Обновите свой браузер или установите один из рекомендуемых: Opera Firefox &nbsp;»
+- https://vk.com/neurohack_vk: 202167 байт, title='��������� | ���������'; маркеры: wall_post=8, Post component=8, publish_date=2, captcha/security=24, window.__=31
+- https://vk.com/neurohack_vk: первые символы текста — «��������� | ��������� &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204;»
 - записи получены скрапингом https://vk.com/neurohack_vk (не через API)
 - API недоступен/закрыт — использован запасной способ чтения стены
 
