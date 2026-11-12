@@ -1,6 +1,6 @@
 # Аудит сообщества vk.ru/greem_motor
 
-_Сформировано: 2026-11-12 17:51 MSK_
+_Сформировано: 2026-11-12 17:55 MSK_
 
 ## Сообщество
 
@@ -15,19 +15,26 @@ _Сформировано: 2026-11-12 17:51 MSK_
 
 | # | Дата | Кто публиковал | Запись |
 |---|------|----------------|--------|
-| 1 | 2026-11-11 09:48 MSK | ? |  |
+| 1 | 2026-11-12 14:12 MSK | ? | &#128663;&#128295; Почему владельцы Renault Logan и Sandero всё чаще сталкиваются с признанием машин «тотальн… |
+| 2 | 2026-11-12 09:11 MSK | ? | &#128663; Как сделать поездки с ребёнком в машине спокойнее и приятнее? Многие дети боятся ездить в машине и … |
+| 3 | 2026-11-11 20:02 MSK | ? | &#128038; В Ярославле чайка спасла водителя от штрафа В Ярославле любопытная чайка решила поучаствовать в дор… |
+| 4 | 2026-11-11 14:07 MSK | ? | &#128663;&#128295; Проверьте качество бензина на российских АЗС! Независимые эксперты проверили 40 проб топли… |
+| 5 | 2026-11-11 09:07 MSK | ? | &#128663;&#128295; Как выбрать китайский автомобиль, который не подведёт зимой? Российские зимы — настоящее и… |
+| 6 | 2026-11-10 17:32 MSK | ? | 📌 &#128293; Добро пожаловать в «Греем Мотор»! &#128205; Наш адрес ВКонтакте: [#alias\|vk.ru/greem_motor\|vk.ru/… |
 
 ## Статистика публикаций
 
-- Всего записей в выборке: **1** (с 2026-11-11 09:48 MSK)
+- Всего записей в выборке: **6** (с 2026-11-10 17:32 MSK)
 - Публикации через API («робот»): **0**
-- Ручные/прочие публикации: **1**
-- Последняя запись вообще: **2026-11-11 09:48 MSK**
+- Ручные/прочие публикации: **6**
+- Последняя запись вообще: **2026-11-12 14:12 MSK**
 - Публикаций через API в выборке **нет** — на стене только ручные записи.
 
 ### Публикации по дням (MSK, последние 14 дней)
 
-- 2026-11-11: 1
+- 2026-11-12: 2
+- 2026-11-11: 3
+- 2026-11-10: 1
 
 ## Выводы
 
@@ -39,13 +46,22 @@ _Сформировано: 2026-11-12 17:51 MSK_
 - wall.get: ошибка VK 5 — User authorization failed: invalid access_token (4).
 - wall.get: ошибка VK 27 — Group authorization failed: method is unavailable with group auth.
 - wall.get: ошибка VK 15 — Access denied: token required
-- https://m.vk.com/greem_motor: 113765 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=5, Post component=10, publish_date=2, captcha/security=1, window.__=33
-- кандидаты дат на странице: 2026-11-12 17:51 MSK «"https:\/\/m.vk.com\/special.php"],"statsMeta":{"platform":"mvk","st":false,"id":0,"time":1794495092,"hash":"cKTXSYnM1kPoCNZjn35SZXSW0sbzFJsSlcvQ97Axy9c","anonymId":"90553017821614»
+- https://m.vk.com/greem_motor: 121018 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=5, Post component=10, publish_date=2, captcha/security=1, window.__=33
+- кандидаты дат на странице: 2026-11-12 17:55 MSK «"https:\/\/m.vk.com\/special.php"],"statsMeta":{"platform":"mvk","st":false,"id":0,"time":1794495312,"hash":"e9FAv2V1MygwzGuZwWR6KNZCuc9lI4TlHHdxpj8UHTc","anonymId":"90712051185661»
 - https://m.vk.com/greem_motor: первые символы текста — «ВКонтакте | ВКонтакте Ваш браузер устарел Из-за этого ВКонтакте может работать медленно и нестабильно. Обновите свой браузер или установите один из рекомендуемых: Opera Firefox &nbsp;»
-- https://vk.com/greem_motor: 203103 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=8, Post component=8, publish_date=2, captcha/security=24, window.__=31
-- кандидаты дат на странице: 2026-11-12 17:51 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794495093,"hash":"8NgThpyFa3lJqHeEoXaq6otrF2XUhjQI9HR3DBK4bgL","anonymId":"9072471755741810502"»; 2026-11-11 09:48 MSK «se},"photo_avg_color":"#711B1A","has_photo":1,"crop_photo":{"photo":{"album_id":-6,"date":1794379703,"id":457239227,"owner_id":-85500918,"post_id":185,"sizes":[{"height":72,"type":»
-- записи найдены во встроенном JSON страницы https://vk.com/greem_motor: 1 шт.
+- https://vk.com/greem_motor: 203452 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=8, Post component=8, publish_date=2, captcha/security=24, window.__=31
+- кандидаты дат на странице: 2026-11-12 17:55 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794495314,"hash":"kw1YEpoyqk7spnqIjlkLsyANZ6pMpEZFQdOlXwEye6c","anonymId":"9084012230007652702"»; 2026-11-11 09:48 MSK «se},"photo_avg_color":"#711B1A","has_photo":1,"crop_photo":{"photo":{"album_id":-6,"date":1794379703,"id":457239227,"owner_id":-85500918,"post_id":185,"sizes":[{"height":72,"type":»
 - https://vk.com/greem_motor: первые символы текста — «ВКонтакте | ВКонтакте &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204;»
-- записи получены скрапингом https://vk.com/greem_motor (не через API)
+- https://vk.com/greem_motor?own=1: 203467 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=8, Post component=8, publish_date=2, captcha/security=24, window.__=31
+- кандидаты дат на странице: 2026-11-12 17:55 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794495315,"hash":"tZy6FGfxfsi4SxuO8qwzUEuyWnKRtKs7dimCkQDyNtw","anonymId":"9065012669081313950"»; 2026-11-11 09:48 MSK «se},"photo_avg_color":"#711B1A","has_photo":1,"crop_photo":{"photo":{"album_id":-6,"date":1794379703,"id":457239227,"owner_id":-85500918,"post_id":185,"sizes":[{"height":72,"type":»
+- https://vk.com/greem_motor?own=1: первые символы текста — «ВКонтакте | ВКонтакте &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204;»
+- https://m.vk.com/wall-85500918: 121026 байт, title='ВКонтакте | ВКонтакте'; маркеры: wall_post=5, Post component=10, publish_date=2, captcha/security=1, window.__=33
+- кандидаты дат на странице: 2026-11-12 17:55 MSK «"https:\/\/m.vk.com\/special.php"],"statsMeta":{"platform":"mvk","st":false,"id":0,"time":1794495317,"hash":"vlYEjsyvdurzfzZGVZjWyNNIzKgwAm3NBGaerI0az6z","anonymId":"90852788674064»
+- https://m.vk.com/wall-85500918: первые символы текста — «ВКонтакте | ВКонтакте Ваш браузер устарел Из-за этого ВКонтакте может работать медленно и нестабильно. Обновите свой браузер или установите один из рекомендуемых: Opera Firefox &nbsp;»
+- https://vk.com/wall-85500918: 436193 байт, title='Греем Мотор: записи сообщества | ВКонтакте'; маркеры: wall_post=80, Post component=143, publish_date=2, replies=12, captcha/security=47, window.__=32
+- кандидаты дат на странице: 2026-11-12 18:55 MSK «зьям","wall_post_access_all":"Видно всем","profile_wall_postpone_btn":"В очередь"},"date":1794498918,"postpone_item_hidden":false}]],"share":{"url":"https:\/\/pu.vk.com\/c909128\/s»; 2026-11-12 17:55 MSK «, lang: 0, isCyrillic: true, statsMeta: {"platform":"web2","st":false,"id":0,"time":1794495319,"hash":"MnqCx76eFbXkdkzz9tLqS6XnzkAh7I7ubgYzOOZESsk","anonymId":"9107374653079576632"»; 2026-11-12 14:12 MSK «ads&quot;:0,&quot;type&quot;:&quot;post&quot;,&quot;attachments&quot;:[],&quot;date&quot;:1794481930,&quot;from_id&quot;:-85500918,&quot;header&quot;:{&quot;photo&quot;:{&quot;sour»; 2026-11-12 09:40 MSK «quot;:1.000000,&quot;ratio&quot;:1.000000},&quot;date&quot;:1794416548,&quot;edited&quot;:1794465655,&quot;from_id&quot;:-85500918,&quot;header&quot;:{&quot;photo&quot;:{&quot;sour»; 2026-11-12 09:38 MSK «quot;:1.000000,&quot;ratio&quot;:1.000000},&quot;date&quot;:1794377226,&quot;edited&quot;:1794465506,&quot;from_id&quot;:-85500918,&quot;header&quot;:{&quot;photo&quot;:{&quot;sour»; 2026-11-12 09:38 MSK «quot;:1.000000,&quot;ratio&quot;:1.000000},&quot;date&quot;:1794395251,&quot;edited&quot;:1794465499,&quot;from_id&quot;:-85500918,&quot;header&quot;:{&quot;photo&quot;:{&quot;sour»; 2026-11-12 09:35 MSK «quot;:1.000000,&quot;ratio&quot;:1.000000},&quot;date&quot;:1794463887,&quot;edited&quot;:1794465347,&quot;from_id&quot;:-85500918,&quot;header&quot;:{&quot;photo&quot;:{&quot;sour»; 2026-11-12 09:32 MSK «;type&quot;:&quot;photo&quot;,&quot;photo&quot;:{&quot;album_id&quot;:-7,&quot;date&quot;:1794465124,&quot;id&quot;:457239233,&quot;owner_id&quot;:-85500918,&quot;access_key&quot;:»
+- записи найдены во встроенном JSON страницы https://vk.com/wall-85500918: 6 шт.
+- https://vk.com/wall-85500918: первые символы текста — «Греем Мотор: записи сообщества | ВКонтакте &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; &#8204; Греем Мотор вернуться к странице Посты сообщества Все посты Все посты 6 Греем Мотор запись закреплена Оценили 0 человек Показать список поделившихся Написать комментарий... Греем Мотор Оценили 0 человек Показать список поделившихся Написать комментарий... Греем Мотор Оценили 0 человек Показать список поделившихся Написать комментарий... Греем Мотор Оценили 0 человек Показать список поделившихся Написать комментарий... Греем Мотор Оценили 0 человек Показать список поделившихся Написать комментарий... Греем Мотор Оценили 0 человек Показать список поделившихся Написать комментарий... к предыдущим постам»
+- записи получены скрапингом https://vk.com/wall-85500918 (не через API)
 - API недоступен/закрыт — использован запасной способ чтения стены
 
