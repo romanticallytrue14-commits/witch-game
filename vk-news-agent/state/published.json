@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "total_posts": 8,
+  "total_posts": 9,
   "used_evergreen_ids": [],
   "items": [
     {
@@ -143,6 +143,24 @@
       "category": "local_76",
       "vk_post_id": 187,
       "published_at": "2026-11-11T17:02:29.860722+00:00"
+    },
+    {
+      "url": "https://motor.ru/news/vrach-dala-tri-soveta-kak-oblegchit-poezdku-rebenka-na-mashine-11-11-2026.htm",
+      "normalized_url": "https://motor.ru/news/vrach-dala-tri-soveta-kak-oblegchit-poezdku-rebenka-na-mashine-11-11-2026.htm",
+      "guid": "https://motor.ru/news/vrach-dala-tri-soveta-kak-oblegchit-poezdku-rebenka-na-mashine-11-11-2026.htm",
+      "title": "Врач дала три совета, как облегчить поездку ребенка на машине",
+      "tokens": [
+        "врач",
+        "дала",
+        "совет",
+        "облегчи",
+        "поездк",
+        "ребенк",
+        "машин"
+      ],
+      "category": "tip",
+      "vk_post_id": 188,
+      "published_at": "2026-11-12T06:11:28.277093+00:00"
     }
   ]
 }
