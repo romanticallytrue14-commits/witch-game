@@ -3,6 +3,6 @@
   "count": 50,
   "reason": "Диагностика: почему робот перестал публиковать посты в vk.ru/neurohack_vk (сравнение с рабочей группой greem_motor)",
   "requested_at": "2026-11-12",
-  "attempt": 5,
-  "attempt_note": "фикс regex дат (был 11 цифр вместо 10), mobile-UA + m.vk.com/wall-<id>, RAW вокруг «Оценил», гистограмма class-ов"
+  "attempt": 6,
+  "attempt_note": "парсер встроенного JSON записей стены (HTML-экранированный &quot;…&quot;) — полный текст, даты и post_source без токена"
 }
