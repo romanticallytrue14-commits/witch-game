@@ -27,7 +27,7 @@ def main() -> int:
             config_path=AGENT_DIR / "config.json",
             state_path=state_path,
             dry_run=False,
-            max_posts=1,
+            max_posts_override=1,
         )
         out["agent_rc"] = rc
         pub_data = json.loads(state_path.read_text(encoding="utf-8"))
