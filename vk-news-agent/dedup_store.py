@@ -197,18 +197,21 @@ class DedupStore:
                     tokens = extract_signature_tokens(title)
                 else:
                     tokens = [str(t) for t in tokens if isinstance(t, str)]
-                sanitized.append(
-                    {
-                        "url": url,
-                        "normalized_url": str(entry.get("normalized_url") or normalize_url(url)),
-                        "guid": str(entry.get("guid", "")),
-                        "title": title,
-                        "tokens": tokens,
-                        "category": str(entry.get("category", "news")),
-                        "vk_post_id": entry.get("vk_post_id"),
-                        "published_at": str(entry.get("published_at", "")),
-                    }
-                )
+                item_dict: dict[str, Any] = {
+                    "url": url,
+                    "normalized_url": str(entry.get("normalized_url") or normalize_url(url)),
+                    "guid": str(entry.get("guid", "")),
+                    "title": title,
+                    "tokens": tokens,
+                    "category": str(entry.get("category", "news")),
+                    "vk_post_id": entry.get("vk_post_id"),
+                    "published_at": str(entry.get("published_at", "")),
+                }
+                if "photo_attached" in entry:
+                    item_dict["photo_attached"] = bool(entry.get("photo_attached"))
+                if entry.get("backfill_text"):
+                    item_dict["backfill_text"] = str(entry["backfill_text"])
+                sanitized.append(item_dict)
             self.items = sanitized
 
     def save(self) -> None:
@@ -315,6 +318,7 @@ class DedupStore:
         category: str = "news",
         vk_post_id: int | None = None,
         evergreen_id: str | None = None,
+        photo_attached: bool = True,
     ) -> None:
         """Фиксирует успешную публикацию поста."""
         self.total_posts += 1
@@ -329,6 +333,7 @@ class DedupStore:
                 "tokens": extract_signature_tokens(title),
                 "category": category,
                 "vk_post_id": vk_post_id,
+                "photo_attached": bool(photo_attached),
                 "published_at": datetime.now(timezone.utc).isoformat(),
             }
         )

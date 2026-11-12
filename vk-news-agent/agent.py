@@ -38,6 +38,7 @@ from news_fetcher import (  # noqa: E402
 from vk_publisher import (  # noqa: E402
     PreparedImage,
     VKAPIError,
+    VKPhotoUploadUnavailableError,
     VKPublisher,
     convert_webp_to_jpeg,
     download_and_prepare_image,
@@ -178,15 +179,26 @@ def run_agent(
     max_posts_override: int | None = None,
     allow_template_fallback: bool = True,
     save_preview_dir: Path | None = None,
+    require_photo_override: bool | None = None,
 ) -> int:
     """Выполняет полный цикл: поиск новостей -> отбор -> генерация ИИ-поста -> публикация в ВК."""
     config = load_config(config_path)
     posting_cfg = config.get("posting", {})
     group_cfg = config.get("group", {})
+    require_photo = (
+        bool(require_photo_override)
+        if require_photo_override is not None
+        else bool(posting_cfg.get("require_photo", True))
+    )
 
     vk_group, fallback_gid = resolve_configured_vk_group(config)
     vk_token = (os.getenv("VK_TOKEN") or "").strip()
-    vk_user_token = (os.getenv("VK_USER_TOKEN") or "").strip()
+    vk_user_token = (
+        os.getenv("VK_USER_TOKEN")
+        or os.getenv("VK_ADMIN_TOKEN")
+        or os.getenv("USER_TOKEN")
+        or ""
+    ).strip()
 
     if not dry_run and not vk_token:
         logger.error(
@@ -210,7 +222,9 @@ def run_agent(
         similarity_threshold=float(posting_cfg.get("title_similarity_threshold", 0.52)),
     )
 
+    group_title = str(group_cfg.get("title", "Греем Мотор"))
     publisher: VKPublisher | None = None
+    recent_posts: list[dict[str, Any]] = []
     if vk_token:
         publisher = VKPublisher(
             vk_token=vk_token,
@@ -225,29 +239,56 @@ def run_agent(
                 if recent_posts:
                     dedup.ingest_vk_wall_posts(recent_posts)
                     logger.info("Загружено %d последних постов со стены ВК для сверки дублей", len(recent_posts))
-                    # Если подключён пользовательский токен, а аватар или фото закрепа ещё не были догружены — догружаем автоматически!
-                    b_state_file = state_path.parent / "branding_state.json"
-                    if not dry_run and b_state_file.exists():
-                        try:
-                            b_st = json.loads(b_state_file.read_text(encoding="utf-8"))
-                        except (OSError, json.JSONDecodeError):
-                            b_st = {}
-                        if not b_st.get("avatar_uploaded") or not b_st.get("pinned_has_photo"):
-                            logger.info("Обнаружен пользовательский доступ ВК — автоматически догружаем аватар, баннер закрепа и фото постов!")
-                            import setup_group_profile
-
-                            setup_group_profile.apply_group_branding(
-                                config_path=config_path,
-                                branding_state_path=b_state_file,
-                                dry_run=False,
-                                update_info=True,
-                                upload_cover=False,
-                                upload_avatar=not bool(b_st.get("avatar_uploaded")),
-                                publish_pinned=not bool(b_st.get("pinned_has_photo")),
-                                backfill_photos=True,
-                            )
             except VKAPIError as exc:
                 logger.warning("Предварительная проверка стены пропущена: %s", exc)
+
+        # Предварительная проверка доступности загрузки фото (1 запрос, кеширующий upload_url):
+        # если ВК временно вернул Flood control (код 9) или нет прав на фото, НЕ публикуем «голый» текст без картинки!
+        if not dry_run and require_photo:
+            probe_url = publisher.probe_wall_photo_upload()
+            if not probe_url:
+                err = publisher.last_photo_error
+                reason = f"код {err.code}: {err.vk_message}" if err is not None else "не получен upload_url"
+                logger.warning(
+                    "Публикация отложена: загрузка изображений на стену ВК временно недоступна (%s). "
+                    "Пост без картинки публиковаться не будет — агент повторит попытку в следующем окне расписания.",
+                    reason,
+                )
+                append_github_summary(
+                    f"## ⏸ Публикация отложена («{group_title}»)\n"
+                    f"- **Причина**: ВК временно отклонил загрузку фото на стену (`{reason}`).\n"
+                    f"- **Защита ленты**: режим `require_photo=true` заблокировал выход поста без иллюстрации. "
+                    f"Свежие новости сохранены в очереди и выйдут с картинкой в следующем запуске по расписанию."
+                )
+                return 0
+
+            # Автоматическое самовосстановление иллюстраций у недавних постов с photo_attached=false
+            if (
+                posting_cfg.get("auto_backfill_missing_photos", True)
+                and recent_posts
+                and any(it.get("photo_attached") is False for it in dedup.items)
+            ):
+                import setup_group_profile
+
+                max_bf = int(posting_cfg.get("max_backfill_per_run", 2))
+                restored = setup_group_profile.backfill_missing_wall_photos(
+                    publisher,
+                    config,
+                    state_path,
+                    recent_posts,
+                    ai_client=ai_client,
+                    max_updates=max_bf,
+                )
+                if restored > 0:
+                    logger.info("Автоматически догружены иллюстрации к %d недавним постам на стене ВК!", restored)
+                    dedup.load()
+                # Если во время догрузки ВК включил лимит фото — проверим перед основным постом
+                if publisher.last_photo_error is not None and not publisher.probe_wall_photo_upload():
+                    append_github_summary(
+                        f"## 🎨 Восстановлены иллюстрации у {restored} постов («{group_title}»)\n"
+                        f"Выпуск нового поста перенесён на следующий слот расписания, чтобы не превысить лимит ВК."
+                    )
+                    return 0
 
     now = datetime.now(timezone.utc)
     max_posts = max_posts_override or int(posting_cfg.get("max_posts_per_run", 1))
@@ -255,7 +296,6 @@ def run_agent(
 
     candidates = collect_fresh_candidates(config, dedup, now=now)
     published_count = 0
-    group_title = str(group_cfg.get("title", "Греем Мотор"))
     summary_sections: list[str] = [
         f"## 🔥 Новостной ИИ-агент «{group_title}» (`{vk_group}`)",
         f"- **Режим запуска**: `{'DRY-RUN (тест без публикации)' if dry_run else 'Боевая публикация на стену ВК'}`",
@@ -420,12 +460,28 @@ def run_agent(
             )
             else ""
         )
-        result = publisher.publish_post(
-            post_text,
-            image=prepared_img,
-            fallback_link=fallback_link,
-            guid=post_guid,
-        )
+        try:
+            result = publisher.publish_post(
+                post_text,
+                image=prepared_img,
+                fallback_link=fallback_link,
+                guid=post_guid,
+                require_photo=require_photo,
+            )
+        except VKPhotoUploadUnavailableError as exc:
+            logger.warning(
+                "Публикация поста отложена (не удалось прикрепить картинку: %s). "
+                "Материал оставлен в очереди до следующего запуска.",
+                exc,
+            )
+            summary_sections.append(
+                f"### ⏸ Публикация отложена\n"
+                f"- **Инфоповод**: {post_title} ({post_source})\n"
+                f"- **Причина**: `{exc}`\n"
+                f"- **Действие**: пост без картинки не опубликован; новость выйдет с иллюстрацией при следующем запуске."
+            )
+            break
+
         vk_post_id = result.get("post_id")
         vk_post_url = result.get("post_url")
         logger.info("Пост успешно опубликован на стене ВК: %s", vk_post_url)
@@ -437,6 +493,7 @@ def run_agent(
             category=post_category,
             vk_post_id=vk_post_id,
             evergreen_id=evergreen_id,
+            photo_attached=bool(result.get("photo_attached")),
         )
         dedup.save()
         published_count += 1
@@ -509,6 +566,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--save-preview-dir",
         default=None,
         help="Сохранить подготовленный текст поста и ИИ-картинку в указанную папку (например, при --dry-run)",
+    )
+    parser.add_argument(
+        "--allow-no-photo",
+        action="store_true",
+        help="Разрешить публикацию текстового поста без картинки, если загрузка фото ВК недоступна",
     )
     parser.add_argument(
         "--verbose",
@@ -605,6 +667,7 @@ def main(argv: list[str] | None = None) -> int:
             max_posts_override=args.max_posts,
             allow_template_fallback=args.allow_template_fallback,
             save_preview_dir=Path(args.save_preview_dir) if args.save_preview_dir else None,
+            require_photo_override=(False if args.allow_no_photo else None),
         )
     except (AIProviderError, VKAPIError, ValueError) as exc:
         logger.error("Критическая ошибка агента: %s", exc)
